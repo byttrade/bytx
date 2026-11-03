@@ -1,13 +1,16 @@
 BYTtrade Source-Available License
-Version 1.1
+Version 1.2
 
-Copyright (c) 2026 BYTtrade. All rights reserved.
+Copyright (c) 2026 BYTtrade (https://byttrade.com). All rights reserved.
 
 This license governs the use of bytx (the "Software"). By downloading,
 installing, copying or using the Software you accept this license. If you do
 not accept it, do not use the Software.
 
 1. Definitions
+
+"BYTtrade" means the owner of the BYTtrade brand and of the website
+https://byttrade.com, together with its successors and assigns.
 
 "Software" means the bytx source code, built packages, documentation and
 examples published by BYTtrade with this license, excluding the third-party
