@@ -1,5 +1,5 @@
 BYTtrade Source-Available License
-Version 1.0
+Version 1.1
 
 Copyright (c) 2026 BYTtrade. All rights reserved.
 
@@ -128,7 +128,7 @@ Your rights under this license end automatically if you breach it. If
 BYTtrade notifies you of a breach and you cure it within 30 days, your rights
 are reinstated; this applies to the first breach only. When your rights end,
 you must stop using the Software and delete all copies in your possession or
-control. Sections 3 to 10 survive termination.
+control. Sections 3 to 12 survive termination.
 
 8. No warranty
 
@@ -154,6 +154,23 @@ the exchanges you use and the laws that apply to you.
 Each version of the Software is governed by the license included with it.
 BYTtrade may publish new versions of this license for future versions of the
 Software.
+
+11. Governing law and jurisdiction
+
+This license is governed by the laws of the Emirate of Dubai and the federal
+laws of the United Arab Emirates as applied in the Emirate of Dubai, without
+regard to conflict-of-laws rules. The courts of the Emirate of Dubai, United
+Arab Emirates, have exclusive jurisdiction over any dispute arising out of or
+in connection with this license or the Software. BYTtrade may nevertheless
+bring proceedings to protect its intellectual property rights, including for
+injunctive relief, in any court of competent jurisdiction. The United Nations
+Convention on Contracts for the International Sale of Goods does not apply.
+
+12. Severability
+
+If any provision of this license is held to be unenforceable, it shall be
+enforced to the maximum extent permitted by law, and the remaining provisions
+remain in full force.
 
 For permissions not granted in this license, contact BYTtrade via
 https://byttrade.com.
