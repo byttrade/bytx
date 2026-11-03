@@ -1,0 +1,21 @@
+# Example for 08_multi_account.py. Secrets only via ${ENV} (the whole value), never in the file.
+# demo: true — the exchange's demo/testnet; remove it only when you're ready for a live account.
+accounts:
+  - name: binance-main
+    exchange: binance
+    api_key: ${BINANCE_KEY_1}
+    secret: ${BINANCE_SECRET_1}
+    proxy: ${PROXY_1}        # socks5://user:pass@host:1080
+    demo: true
+  - name: binance-second
+    exchange: binance
+    api_key: ${BINANCE_KEY_2}
+    secret: ${BINANCE_SECRET_2}
+    proxy: ${PROXY_2}
+    demo: true
+  - name: okx-main
+    exchange: okx
+    api_key: ${OKX_KEY}
+    secret: ${OKX_SECRET}
+    password: ${OKX_PASSPHRASE}
+    demo: true

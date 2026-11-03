@@ -1,0 +1,504 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``tests/fixtures/markets/<ccxt id>.json``.",
+ "exchange": "bingx",
+ "markets": [
+  {
+   "id": "BTC-USDT",
+   "lowercaseId": null,
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.0001,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.0001,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 2.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "contractId": "100",
+    "symbol": "BTC-USDT",
+    "size": "0.0001",
+    "quantityPrecision": 4,
+    "pricePrecision": 1,
+    "feeRate": 0.0005,
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "tradeMinLimit": 0,
+    "tradeMinQuantity": 0.0001,
+    "tradeMinUSDT": 2,
+    "currency": "USDT",
+    "asset": "BTC",
+    "status": 1,
+    "apiStateOpen": "true",
+    "apiStateClose": "true",
+    "ensureTrigger": true,
+    "triggerFeeRate": "0.00050000",
+    "brokerState": false,
+    "launchTime": 1586275200000,
+    "maintainTime": 0,
+    "offTime": 0,
+    "displayName": "BTC-USDT"
+   },
+   "feeSide": "quote"
+  },
+  {
+   "id": "ETH-USDT",
+   "lowercaseId": null,
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 2.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "contractId": "100",
+    "symbol": "ETH-USDT",
+    "size": "0.0001",
+    "quantityPrecision": 2,
+    "pricePrecision": 1,
+    "feeRate": 0.0005,
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "tradeMinLimit": 0,
+    "tradeMinQuantity": 0.01,
+    "tradeMinUSDT": 2,
+    "currency": "USDT",
+    "asset": "ETH",
+    "status": 1,
+    "apiStateOpen": "true",
+    "apiStateClose": "true",
+    "ensureTrigger": true,
+    "triggerFeeRate": "0.00050000",
+    "brokerState": false,
+    "launchTime": 1586275200000,
+    "maintainTime": 0,
+    "offTime": 0,
+    "displayName": "ETH-USDT"
+   },
+   "feeSide": "quote"
+  },
+  {
+   "id": "SOL-USDT",
+   "lowercaseId": null,
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 2.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "contractId": "100",
+    "symbol": "SOL-USDT",
+    "size": "0.0001",
+    "quantityPrecision": 1,
+    "pricePrecision": 1,
+    "feeRate": 0.0005,
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "tradeMinLimit": 0,
+    "tradeMinQuantity": 0.1,
+    "tradeMinUSDT": 2,
+    "currency": "USDT",
+    "asset": "SOL",
+    "status": 1,
+    "apiStateOpen": "true",
+    "apiStateClose": "true",
+    "ensureTrigger": true,
+    "triggerFeeRate": "0.00050000",
+    "brokerState": false,
+    "launchTime": 1586275200000,
+    "maintainTime": 0,
+    "offTime": 0,
+    "displayName": "SOL-USDT"
+   },
+   "feeSide": "quote"
+  },
+  {
+   "id": "DOGE-USDT",
+   "lowercaseId": null,
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 1.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 2.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "contractId": "100",
+    "symbol": "DOGE-USDT",
+    "size": "0.0001",
+    "quantityPrecision": 0,
+    "pricePrecision": 1,
+    "feeRate": 0.0005,
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "tradeMinLimit": 0,
+    "tradeMinQuantity": 1,
+    "tradeMinUSDT": 2,
+    "currency": "USDT",
+    "asset": "DOGE",
+    "status": 1,
+    "apiStateOpen": "true",
+    "apiStateClose": "true",
+    "ensureTrigger": true,
+    "triggerFeeRate": "0.00050000",
+    "brokerState": false,
+    "launchTime": 1586275200000,
+    "maintainTime": 0,
+    "offTime": 0,
+    "displayName": "DOGE-USDT"
+   },
+   "feeSide": "quote"
+  },
+  {
+   "id": "XRP-USDT",
+   "lowercaseId": null,
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 2.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "contractId": "100",
+    "symbol": "XRP-USDT",
+    "size": "0.0001",
+    "quantityPrecision": 1,
+    "pricePrecision": 1,
+    "feeRate": 0.0005,
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "tradeMinLimit": 0,
+    "tradeMinQuantity": 0.1,
+    "tradeMinUSDT": 2,
+    "currency": "USDT",
+    "asset": "XRP",
+    "status": 1,
+    "apiStateOpen": "true",
+    "apiStateClose": "true",
+    "ensureTrigger": true,
+    "triggerFeeRate": "0.00050000",
+    "brokerState": false,
+    "launchTime": 1586275200000,
+    "maintainTime": 0,
+    "offTime": 0,
+    "displayName": "XRP-USDT"
+   },
+   "feeSide": "quote"
+  },
+  {
+   "id": "SHIB-USDT",
+   "lowercaseId": null,
+   "symbol": "SHIB/USDT:USDT",
+   "base": "SHIB",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SHIB",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 1.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 2.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "contractId": "100",
+    "symbol": "SHIB-USDT",
+    "size": "0.0001",
+    "quantityPrecision": 0,
+    "pricePrecision": 1,
+    "feeRate": 0.0005,
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "tradeMinLimit": 0,
+    "tradeMinQuantity": 1,
+    "tradeMinUSDT": 2,
+    "currency": "USDT",
+    "asset": "SHIB",
+    "status": 1,
+    "apiStateOpen": "true",
+    "apiStateClose": "true",
+    "ensureTrigger": true,
+    "triggerFeeRate": "0.00050000",
+    "brokerState": false,
+    "launchTime": 1586275200000,
+    "maintainTime": 0,
+    "offTime": 0,
+    "displayName": "SHIB-USDT"
+   },
+   "feeSide": "quote"
+  }
+ ]
+}

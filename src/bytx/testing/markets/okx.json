@@ -1,0 +1,503 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``tests/fixtures/markets/<ccxt id>.json``.",
+ "exchange": "okx",
+ "markets": [
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "BTC-USDT-SWAP",
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 0.01,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "BTC-USDT-SWAP",
+    "uly": "BTC-USDT",
+    "instFamily": "BTC-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "0.01",
+    "ctMult": "1",
+    "ctValCcy": "BTC",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "0.01",
+    "minSz": "0.01",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  },
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "ETH-USDT-SWAP",
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 0.1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "ETH-USDT-SWAP",
+    "uly": "ETH-USDT",
+    "instFamily": "ETH-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "0.1",
+    "ctMult": "1",
+    "ctValCcy": "ETH",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "0.01",
+    "minSz": "0.01",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  },
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "SOL-USDT-SWAP",
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "SOL-USDT-SWAP",
+    "uly": "SOL-USDT",
+    "instFamily": "SOL-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "1",
+    "ctMult": "1",
+    "ctValCcy": "SOL",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "0.01",
+    "minSz": "0.01",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  },
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "DOGE-USDT-SWAP",
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 1000.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "DOGE-USDT-SWAP",
+    "uly": "DOGE-USDT",
+    "instFamily": "DOGE-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "1000",
+    "ctMult": "1",
+    "ctValCcy": "DOGE",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "0.01",
+    "minSz": "0.01",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  },
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "XRP-USDT-SWAP",
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 100.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "XRP-USDT-SWAP",
+    "uly": "XRP-USDT",
+    "instFamily": "XRP-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "100",
+    "ctMult": "1",
+    "ctValCcy": "XRP",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "0.01",
+    "minSz": "0.01",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  },
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "PEPE-USDT-SWAP",
+   "symbol": "PEPE/USDT:USDT",
+   "base": "PEPE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "PEPE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 10000000.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "PEPE-USDT-SWAP",
+    "uly": "PEPE-USDT",
+    "instFamily": "PEPE-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "10000000",
+    "ctMult": "1",
+    "ctValCcy": "PEPE",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "0.1",
+    "minSz": "0.1",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  },
+  {
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "id": "LTC-USDT-SWAP",
+   "symbol": "LTC/USDT:USDT",
+   "base": "LTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "LTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "created": 1606468572000,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "info": {
+    "instType": "SWAP",
+    "instId": "LTC-USDT-SWAP",
+    "uly": "LTC-USDT",
+    "instFamily": "LTC-USDT",
+    "baseCcy": "",
+    "quoteCcy": "",
+    "settleCcy": "USDT",
+    "ctVal": "1",
+    "ctMult": "1",
+    "ctValCcy": "LTC",
+    "ctType": "linear",
+    "lever": "100",
+    "listTime": "1606468572000",
+    "expTime": "",
+    "lotSz": "1",
+    "minSz": "1",
+    "tickSz": "0.1",
+    "state": "live",
+    "maxMktSz": ""
+   }
+  }
+ ]
+}

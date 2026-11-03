@@ -1,0 +1,125 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bytx"
+dynamic = ["version"]
+description = "bytx — typed async Python SDK for crypto exchanges by BYTtrade: Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget and more"
+readme = "README.md"
+license = "LicenseRef-BYTtrade-Source-Available-1.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+authors = [{ name = "BYTtrade" }]
+keywords = ["crypto", "exchange", "trading", "futures", "ccxt", "binance", "bybit", "okx", "hyperliquid"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
+dependencies = [
+    "ccxt==4.4.65",
+    "pydantic>=2.5,<3",
+    "loguru>=0.7",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+ws = ["aiohttp-socks>=0.8"]
+fast = ["orjson>=3.9", "uvloop>=0.19; sys_platform != 'win32'"]
+yaml = ["pyyaml>=6.0"]
+# dataframes and parquet history cache (the core works without them; without pyarrow the cache is csv)
+pandas = ["pandas>=1.5"]
+polars = ["polars>=0.20"]
+parquet = ["pyarrow>=12"]
+data = ["pandas>=1.5", "pyarrow>=12"]
+# integrations (off by default; notifications and the aiohttp webhook use the core's aiohttp)
+prometheus = ["prometheus_client>=0.17"]
+otel = ["opentelemetry-api>=1.20"]
+fastapi = ["fastapi>=0.100"]
+integrations = ["prometheus_client>=0.17", "opentelemetry-api>=1.20", "fastapi>=0.100"]
+# bytx.testing.pytest_plugin (the emulators themselves work without pytest)
+testing = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23,<0.25",
+    "pytest-socket>=0.7",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://byttrade.com"
+Repository = "https://github.com/byttrade/bytx"
+Documentation = "https://github.com/byttrade/bytx#readme"
+Issues = "https://github.com/byttrade/bytx/issues"
+
+[tool.hatch.version]
+path = "src/bytx/__version__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bytx"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--disable-socket --allow-unix-socket"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+follow_imports = "silent"
+files = [
+    "src/bytx/exchange.py", "src/bytx/convert.py", "src/bytx/types.py",
+    "src/bytx/errors.py", "src/bytx/markets.py", "src/bytx/transport.py",
+    "src/bytx/order_params.py", "src/bytx/accounts.py", "src/bytx/net/_sig/opts.py",
+    "src/bytx/trackers.py", "src/bytx/streams/supervisor.py", "src/bytx/streams/private.py",
+    "src/bytx/outcome.py", "src/bytx/net/deadline.py", "src/bytx/sizing.py",
+    "src/bytx/journal", "src/bytx/exchanges/hyperliquid/cloid.py",
+    "src/bytx/exchanges/bitget", "src/bytx/exchanges/gate", "src/bytx/exchanges/mexc",
+    "src/bytx/exchanges/htx", "src/bytx/paper",
+    "src/bytx/algos", "src/bytx/risk_sizing.py", "src/bytx/recovery",
+    "src/bytx/strategy", "src/bytx/exchanges/__init__.py", "src/bytx/exchanges/binance/matching.py",
+    "src/bytx/exchanges/bybit/matching.py", "src/bytx/exchanges/okx/matching.py",
+    "src/bytx/exchanges/bingx/matching.py", "src/bytx/exchanges/kucoin/matching.py",
+    "src/bytx/exchanges/hyperliquid/matching.py",
+    "src/bytx/portfolio.py", "src/bytx/exchanges/_income_common.py",
+    "src/bytx/exchanges/binance/portfolio.py", "src/bytx/exchanges/bybit/portfolio.py",
+    "src/bytx/exchanges/okx/portfolio.py", "src/bytx/exchanges/bingx/portfolio.py",
+    "src/bytx/exchanges/kucoin/portfolio.py", "src/bytx/exchanges/hyperliquid/portfolio.py",
+    "src/bytx/key_check.py", "src/bytx/exchanges/binance/api_key.py", "src/bytx/exchanges/bybit/api_key.py",
+    "src/bytx/exchanges/okx/api_key.py", "src/bytx/exchanges/bingx/api_key.py",
+    "src/bytx/exchanges/kucoin/api_key.py", "src/bytx/exchanges/hyperliquid/api_key.py",
+    "src/bytx/health.py", "src/bytx/exchanges/binance/status.py",
+    "src/bytx/exchanges/bybit/status.py", "src/bytx/exchanges/okx/status.py",
+    "src/bytx/exchanges/bingx/status.py", "src/bytx/exchanges/kucoin/status.py",
+    "src/bytx/exchanges/hyperliquid/status.py",
+    "src/bytx/data", "src/bytx/exchanges/_history_common.py",
+    "src/bytx/exchanges/binance/history.py", "src/bytx/exchanges/bybit/history.py",
+    "src/bytx/exchanges/okx/history.py", "src/bytx/exchanges/bingx/history.py",
+    "src/bytx/exchanges/kucoin/history.py", "src/bytx/exchanges/hyperliquid/history.py",
+    "src/bytx/testing", "src/bytx/sync.py",
+    "src/bytx/events.py", "src/bytx/integrations",
+]
+
+[tool.hatch.build.targets.sdist]
+# only what package users need
+include = [
+    "/src/bytx", "/examples",
+    "/README.md", "/README.*.md", "/LICENSE", "/NOTICE", "/pyproject.toml",
+]

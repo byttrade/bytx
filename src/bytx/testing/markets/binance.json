@@ -1,0 +1,818 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``tests/fixtures/markets/<ccxt id>.json``.",
+ "exchange": "binance",
+ "markets": [
+  {
+   "id": "BLZUSDT",
+   "lowercaseId": "blzusdt",
+   "symbol": "BLZ/USDT:USDT",
+   "base": "BLZ",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BLZ",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    },
+    "market": {
+     "min": 1.0,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "BLZUSDT",
+    "pair": "BLZUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "BLZ",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "1",
+      "maxQty": "10000000",
+      "stepSize": "1"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "1",
+      "maxQty": "590119",
+      "stepSize": "1"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "5.0"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  },
+  {
+   "id": "BTCUSDT",
+   "lowercaseId": "btcusdt",
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.001,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.001,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 100.0,
+     "max": null
+    },
+    "market": {
+     "min": 0.001,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "BTCUSDT",
+    "pair": "BTCUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "BTC",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "0.001",
+      "maxQty": "10000000",
+      "stepSize": "0.001"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "0.001",
+      "maxQty": "590119",
+      "stepSize": "0.001"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "100"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  },
+  {
+   "id": "ETHUSDT",
+   "lowercaseId": "ethusdt",
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.001,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.001,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 20.0,
+     "max": null
+    },
+    "market": {
+     "min": 0.001,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "ETHUSDT",
+    "pair": "ETHUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "ETH",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "0.001",
+      "maxQty": "10000000",
+      "stepSize": "0.001"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "0.001",
+      "maxQty": "590119",
+      "stepSize": "0.001"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "20"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  },
+  {
+   "id": "SOLUSDT",
+   "lowercaseId": "solusdt",
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    },
+    "market": {
+     "min": 1.0,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "SOLUSDT",
+    "pair": "SOLUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "SOL",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "1",
+      "maxQty": "10000000",
+      "stepSize": "1"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "1",
+      "maxQty": "590119",
+      "stepSize": "1"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "5"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  },
+  {
+   "id": "XRPUSDT",
+   "lowercaseId": "xrpusdt",
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.1,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    },
+    "market": {
+     "min": 0.1,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "XRPUSDT",
+    "pair": "XRPUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "XRP",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "0.1",
+      "maxQty": "10000000",
+      "stepSize": "0.1"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "0.1",
+      "maxQty": "590119",
+      "stepSize": "0.1"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "5"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  },
+  {
+   "id": "DOGEUSDT",
+   "lowercaseId": "dogeusdt",
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    },
+    "market": {
+     "min": 1.0,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "DOGEUSDT",
+    "pair": "DOGEUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "DOGE",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "1",
+      "maxQty": "10000000",
+      "stepSize": "1"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "1",
+      "maxQty": "590119",
+      "stepSize": "1"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "5"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  },
+  {
+   "id": "BNBUSDT",
+   "lowercaseId": "bnbusdt",
+   "symbol": "BNB/USDT:USDT",
+   "base": "BNB",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BNB",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0005,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.0001,
+    "base": 1e-08,
+    "quote": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": null
+    },
+    "amount": {
+     "min": 0.01,
+     "max": 10000000.0
+    },
+    "price": {
+     "min": 0.0001,
+     "max": 300.0
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    },
+    "market": {
+     "min": 0.01,
+     "max": 590119.0
+    }
+   },
+   "info": {
+    "symbol": "BNBUSDT",
+    "pair": "BNBUSDT",
+    "contractType": "PERPETUAL",
+    "deliveryDate": 4133404800000,
+    "onboardDate": 1598252400000,
+    "status": "TRADING",
+    "maintMarginPercent": "2.5000",
+    "requiredMarginPercent": "5.0000",
+    "baseAsset": "BNB",
+    "quoteAsset": "USDT",
+    "marginAsset": "USDT",
+    "pricePrecision": 5,
+    "quantityPrecision": 0,
+    "baseAssetPrecision": 8,
+    "quotePrecision": 8,
+    "underlyingType": "COIN",
+    "underlyingSubType": [
+     "STORAGE"
+    ],
+    "settlePlan": 0,
+    "triggerProtect": "0.15",
+    "filters": [
+     {
+      "filterType": "PRICE_FILTER",
+      "minPrice": "0.0001",
+      "maxPrice": "300",
+      "tickSize": "0.0001"
+     },
+     {
+      "filterType": "LOT_SIZE",
+      "minQty": "0.01",
+      "maxQty": "10000000",
+      "stepSize": "0.01"
+     },
+     {
+      "filterType": "MARKET_LOT_SIZE",
+      "minQty": "0.01",
+      "maxQty": "590119",
+      "stepSize": "0.01"
+     },
+     {
+      "filterType": "MIN_NOTIONAL",
+      "notional": "5"
+     }
+    ],
+    "orderTypes": [
+     "LIMIT"
+    ],
+    "timeInForce": [
+     "GTC"
+    ],
+    "liquidationFee": "0.010000",
+    "marketTakeBound": "0.30"
+   },
+   "created": 1598252400000
+  }
+ ]
+}

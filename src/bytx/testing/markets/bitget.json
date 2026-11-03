@@ -1,0 +1,570 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``src/bytx/testing/markets/<ccxt id>.json`` (public ``bytx.testing`` snapshots).",
+ "exchange": "bitget",
+ "markets": [
+  {
+   "id": "BTCUSDT",
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0006,
+   "maker": 0.0004,
+   "contractSize": 1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "BTCUSDT",
+    "baseCoin": "BTC",
+    "quoteCoin": "USDT",
+    "buyLimitPriceRatio": "0.9",
+    "sellLimitPriceRatio": "0.9",
+    "feeRateUpRatio": "0.1",
+    "makerFeeRate": "0.0004",
+    "takerFeeRate": "0.0006",
+    "openCostUpRatio": "0.1",
+    "supportMarginCoins": [
+     "USDT"
+    ],
+    "minTradeNum": "0.01",
+    "priceEndStep": "1",
+    "volumePlace": "2",
+    "pricePlace": "1",
+    "sizeMultiplier": "0.01",
+    "symbolType": "perpetual",
+    "minTradeUSDT": "5",
+    "maxSymbolOrderNum": "999999",
+    "maxProductOrderNum": "999999",
+    "maxPositionNum": "150",
+    "symbolStatus": "normal",
+    "offTime": "-1",
+    "limitOpenTime": "-1",
+    "deliveryTime": "",
+    "deliveryStartTime": "",
+    "deliveryPeriod": "",
+    "launchTime": "",
+    "fundInterval": "8",
+    "minLever": "1",
+    "maxLever": "125",
+    "posLimit": "0.05",
+    "maintainTime": "1680165535278",
+    "openTime": "",
+    "maxMarketOrderQty": "220",
+    "maxOrderQty": "1200",
+    "isRwa": "YES"
+   }
+  },
+  {
+   "id": "ETHUSDT",
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0006,
+   "maker": 0.0004,
+   "contractSize": 1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.01
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "ETHUSDT",
+    "baseCoin": "ETH",
+    "quoteCoin": "USDT",
+    "buyLimitPriceRatio": "0.9",
+    "sellLimitPriceRatio": "0.9",
+    "feeRateUpRatio": "0.1",
+    "makerFeeRate": "0.0004",
+    "takerFeeRate": "0.0006",
+    "openCostUpRatio": "0.1",
+    "supportMarginCoins": [
+     "USDT"
+    ],
+    "minTradeNum": "0.01",
+    "priceEndStep": "1",
+    "volumePlace": "2",
+    "pricePlace": "2",
+    "sizeMultiplier": "0.01",
+    "symbolType": "perpetual",
+    "minTradeUSDT": "5",
+    "maxSymbolOrderNum": "999999",
+    "maxProductOrderNum": "999999",
+    "maxPositionNum": "150",
+    "symbolStatus": "normal",
+    "offTime": "-1",
+    "limitOpenTime": "-1",
+    "deliveryTime": "",
+    "deliveryStartTime": "",
+    "deliveryPeriod": "",
+    "launchTime": "",
+    "fundInterval": "8",
+    "minLever": "1",
+    "maxLever": "125",
+    "posLimit": "0.05",
+    "maintainTime": "1680165535278",
+    "openTime": "",
+    "maxMarketOrderQty": "220",
+    "maxOrderQty": "1200",
+    "isRwa": "YES"
+   }
+  },
+  {
+   "id": "SOLUSDT",
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0006,
+   "maker": 0.0004,
+   "contractSize": 1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.001
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "SOLUSDT",
+    "baseCoin": "SOL",
+    "quoteCoin": "USDT",
+    "buyLimitPriceRatio": "0.9",
+    "sellLimitPriceRatio": "0.9",
+    "feeRateUpRatio": "0.1",
+    "makerFeeRate": "0.0004",
+    "takerFeeRate": "0.0006",
+    "openCostUpRatio": "0.1",
+    "supportMarginCoins": [
+     "USDT"
+    ],
+    "minTradeNum": "0.1",
+    "priceEndStep": "1",
+    "volumePlace": "1",
+    "pricePlace": "3",
+    "sizeMultiplier": "0.1",
+    "symbolType": "perpetual",
+    "minTradeUSDT": "5",
+    "maxSymbolOrderNum": "999999",
+    "maxProductOrderNum": "999999",
+    "maxPositionNum": "150",
+    "symbolStatus": "normal",
+    "offTime": "-1",
+    "limitOpenTime": "-1",
+    "deliveryTime": "",
+    "deliveryStartTime": "",
+    "deliveryPeriod": "",
+    "launchTime": "",
+    "fundInterval": "8",
+    "minLever": "1",
+    "maxLever": "125",
+    "posLimit": "0.05",
+    "maintainTime": "1680165535278",
+    "openTime": "",
+    "maxMarketOrderQty": "220",
+    "maxOrderQty": "1200",
+    "isRwa": "YES"
+   }
+  },
+  {
+   "id": "DOGEUSDT",
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0006,
+   "maker": 0.0004,
+   "contractSize": 1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 1e-05
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 10.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "DOGEUSDT",
+    "baseCoin": "DOGE",
+    "quoteCoin": "USDT",
+    "buyLimitPriceRatio": "0.9",
+    "sellLimitPriceRatio": "0.9",
+    "feeRateUpRatio": "0.1",
+    "makerFeeRate": "0.0004",
+    "takerFeeRate": "0.0006",
+    "openCostUpRatio": "0.1",
+    "supportMarginCoins": [
+     "USDT"
+    ],
+    "minTradeNum": "10",
+    "priceEndStep": "1",
+    "volumePlace": "0",
+    "pricePlace": "5",
+    "sizeMultiplier": "1",
+    "symbolType": "perpetual",
+    "minTradeUSDT": "5",
+    "maxSymbolOrderNum": "999999",
+    "maxProductOrderNum": "999999",
+    "maxPositionNum": "150",
+    "symbolStatus": "normal",
+    "offTime": "-1",
+    "limitOpenTime": "-1",
+    "deliveryTime": "",
+    "deliveryStartTime": "",
+    "deliveryPeriod": "",
+    "launchTime": "",
+    "fundInterval": "8",
+    "minLever": "1",
+    "maxLever": "125",
+    "posLimit": "0.05",
+    "maintainTime": "1680165535278",
+    "openTime": "",
+    "maxMarketOrderQty": "220",
+    "maxOrderQty": "1200",
+    "isRwa": "YES"
+   }
+  },
+  {
+   "id": "XRPUSDT",
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0006,
+   "maker": 0.0004,
+   "contractSize": 1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 10.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "XRPUSDT",
+    "baseCoin": "XRP",
+    "quoteCoin": "USDT",
+    "buyLimitPriceRatio": "0.9",
+    "sellLimitPriceRatio": "0.9",
+    "feeRateUpRatio": "0.1",
+    "makerFeeRate": "0.0004",
+    "takerFeeRate": "0.0006",
+    "openCostUpRatio": "0.1",
+    "supportMarginCoins": [
+     "USDT"
+    ],
+    "minTradeNum": "10",
+    "priceEndStep": "1",
+    "volumePlace": "0",
+    "pricePlace": "4",
+    "sizeMultiplier": "1",
+    "symbolType": "perpetual",
+    "minTradeUSDT": "5",
+    "maxSymbolOrderNum": "999999",
+    "maxProductOrderNum": "999999",
+    "maxPositionNum": "150",
+    "symbolStatus": "normal",
+    "offTime": "-1",
+    "limitOpenTime": "-1",
+    "deliveryTime": "",
+    "deliveryStartTime": "",
+    "deliveryPeriod": "",
+    "launchTime": "",
+    "fundInterval": "8",
+    "minLever": "1",
+    "maxLever": "125",
+    "posLimit": "0.05",
+    "maintainTime": "1680165535278",
+    "openTime": "",
+    "maxMarketOrderQty": "220",
+    "maxOrderQty": "1200",
+    "isRwa": "YES"
+   }
+  },
+  {
+   "id": "PEPEUSDT",
+   "symbol": "PEPE/USDT:USDT",
+   "base": "PEPE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "PEPE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "marginModes": {
+    "cross": true,
+    "isolated": true
+   },
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0006,
+   "maker": 0.0004,
+   "contractSize": 1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 100.0,
+    "price": 1e-08
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 100000.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 5.0,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "PEPEUSDT",
+    "baseCoin": "PEPE",
+    "quoteCoin": "USDT",
+    "buyLimitPriceRatio": "0.9",
+    "sellLimitPriceRatio": "0.9",
+    "feeRateUpRatio": "0.1",
+    "makerFeeRate": "0.0004",
+    "takerFeeRate": "0.0006",
+    "openCostUpRatio": "0.1",
+    "supportMarginCoins": [
+     "USDT"
+    ],
+    "minTradeNum": "100000",
+    "priceEndStep": "1",
+    "volumePlace": "0",
+    "pricePlace": "8",
+    "sizeMultiplier": "100",
+    "symbolType": "perpetual",
+    "minTradeUSDT": "5",
+    "maxSymbolOrderNum": "999999",
+    "maxProductOrderNum": "999999",
+    "maxPositionNum": "150",
+    "symbolStatus": "normal",
+    "offTime": "-1",
+    "limitOpenTime": "-1",
+    "deliveryTime": "",
+    "deliveryStartTime": "",
+    "deliveryPeriod": "",
+    "launchTime": "",
+    "fundInterval": "8",
+    "minLever": "1",
+    "maxLever": "125",
+    "posLimit": "0.05",
+    "maintainTime": "1680165535278",
+    "openTime": "",
+    "maxMarketOrderQty": "220",
+    "maxOrderQty": "1200",
+    "isRwa": "YES"
+   }
+  }
+ ]
+}

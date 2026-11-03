@@ -1,0 +1,159 @@
+BYTtrade Source-Available License
+Version 1.0
+
+Copyright (c) 2026 BYTtrade. All rights reserved.
+
+This license governs the use of bytx (the "Software"). By downloading,
+installing, copying or using the Software you accept this license. If you do
+not accept it, do not use the Software.
+
+1. Definitions
+
+"Software" means the bytx source code, built packages, documentation and
+examples published by BYTtrade with this license, excluding the third-party
+components listed in the NOTICE file.
+
+"You" means the individual or legal entity exercising rights under this
+license, together with any entity that controls, is controlled by or is under
+common control with that entity.
+
+"Distribute" means to make a copy available to any third party by any means,
+including through a package index, a public or private repository, a
+container image, an installer or as part of another product.
+
+"Broker Attribution" means the broker, partner and referral identifiers, and
+the related request signing, that the Software sends to exchanges on behalf
+of BYTtrade.
+
+2. What you may do
+
+Subject to your compliance with this license, BYTtrade grants you a
+worldwide, non-exclusive, non-transferable, non-sublicensable, royalty-free
+license to:
+
+(a) download and install the Software from its official sources,
+    https://github.com/byttrade/bytx and https://pypi.org/project/bytx;
+
+(b) use the Software for any lawful purpose, including commercial purposes
+    and trading on your own account, as a dependency of your own scripts,
+    bots and applications, subject to section 3(e);
+
+(c) use the Software through its public interfaces, including importing it,
+    subclassing its classes, passing callbacks and configuring it with the
+    options and environment variables described in its documentation;
+
+(d) make the copies of the Software reasonably necessary for the uses above,
+    such as installations on computers, servers, containers and continuous
+    integration systems that you operate, and backups;
+
+(e) change your own installed copy solely to keep it working in your
+    environment or to correct errors, provided that the changed copy is used
+    only by you, is never Distributed, and leaves Broker Attribution and the
+    notices referred to in section 3(f) intact;
+
+(f) Distribute the Software in unmodified form only as an installed
+    dependency of your own application, provided that your application adds
+    substantial functionality of its own, the Software is not offered as a
+    separate product or as a library, SDK or API, and this LICENSE file and
+    the NOTICE file are included; and
+
+(g) use the code samples in the documentation and in the examples directory
+    as a starting point for your own scripts, bots and applications, but not
+    for any software library, SDK or framework.
+
+Viewing and forking the source repository through GitHub's own features is
+permitted to the extent required by GitHub's Terms of Service. It grants no
+other rights in the Software.
+
+3. What you may not do
+
+Except as expressly permitted in section 2, you may not:
+
+(a) modify, adapt, translate or create derivative works of the Software, or
+    Distribute any modified version of it;
+
+(b) copy the Software or any part of it, including its source code,
+    documentation and examples, into any other software library, SDK,
+    framework, application or project, whether open source or proprietary;
+
+(c) Distribute, publish, sell, rent, lease, lend or sublicense the Software,
+    including by publishing the Software, a fork or a modified version to a
+    package index, registry or public repository;
+
+(d) use the Software or any part of it to develop or offer a software
+    library, SDK, framework or API for exchange connectivity or trading;
+
+(e) offer the Software, or functionality provided by it, to third parties as
+    a hosted or managed service, including a service through which third
+    parties connect their own exchange accounts and trade;
+
+(f) remove, alter or obscure any copyright, license or attribution notice in
+    the Software, including the LICENSE and NOTICE files;
+
+(g) remove, disable, replace or circumvent Broker Attribution by any means,
+    including modification, monkey-patching, proxying or configuration. You
+    may turn Broker Attribution off for your own use with the opt-out options
+    described in the Software's documentation. Replacing BYTtrade's
+    identifiers with any other identifiers is not permitted; or
+
+(h) use the names, logos or trademarks of BYTtrade or bytx, except to state
+    truthfully that your product uses bytx.
+
+4. Third-party components
+
+The Software depends on third-party software, including CCXT, that is
+licensed under its own terms, as listed in the NOTICE file. Those components
+are not covered by this license, and nothing in this license limits your
+rights under their licenses. Any portion of the Software derived from
+third-party code remains subject to the original license of that code, as
+stated in the NOTICE file.
+
+5. Contributions
+
+If you submit code, documentation or other material to BYTtrade, for example
+as a pull request, patch or issue, you grant BYTtrade a perpetual, worldwide,
+non-exclusive, irrevocable, royalty-free license to use, reproduce, modify,
+sublicense and distribute it under any terms, and you confirm that you have
+the right to grant this license.
+
+6. Ownership
+
+The Software is licensed, not sold. BYTtrade retains all right, title and
+interest in the Software. All rights not expressly granted in this license
+are reserved.
+
+7. Termination
+
+Your rights under this license end automatically if you breach it. If
+BYTtrade notifies you of a breach and you cure it within 30 days, your rights
+are reinstated; this applies to the first breach only. When your rights end,
+you must stop using the Software and delete all copies in your possession or
+control. Sections 3 to 10 survive termination.
+
+8. No warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+9. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL BYTTRADE OR ITS
+AFFILIATES BE LIABLE FOR ANY CLAIM, DAMAGES, TRADING LOSSES, LOST PROFITS OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+The Software sends instructions to third-party exchanges. It is not
+financial, investment or tax advice. You are solely responsible for your
+orders, positions, funds and API keys, and for complying with the rules of
+the exchanges you use and the laws that apply to you.
+
+10. Versions of this license
+
+Each version of the Software is governed by the license included with it.
+BYTtrade may publish new versions of this license for future versions of the
+Software.
+
+For permissions not granted in this license, contact BYTtrade via
+https://byttrade.com.

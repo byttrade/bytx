@@ -1,0 +1,612 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``tests/fixtures/markets/<ccxt id>.json``.",
+ "exchange": "bybit",
+ "markets": [
+  {
+   "id": "BTCUSDT",
+   "lowercaseId": null,
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.001,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.001,
+     "max": 1190.0
+    },
+    "price": {
+     "min": 0.1,
+     "max": 1999999.8
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1585526400000,
+   "info": {
+    "symbol": "BTCUSDT",
+    "symbolId": 5,
+    "contractType": "LinearPerpetual",
+    "status": "Trading",
+    "baseCoin": "BTC",
+    "quoteCoin": "USDT",
+    "launchTime": "1585526400000",
+    "deliveryTime": "0",
+    "deliveryFeeRate": "",
+    "priceScale": "2",
+    "leverageFilter": {
+     "minLeverage": "1",
+     "maxLeverage": "100.00",
+     "leverageStep": "0.01"
+    },
+    "priceFilter": {
+     "minPrice": "0.10",
+     "maxPrice": "1999999.80",
+     "tickSize": "0.10"
+    },
+    "lotSizeFilter": {
+     "maxOrderQty": "1190.000",
+     "minOrderQty": "0.001",
+     "qtyStep": "0.001",
+     "postOnlyMaxOrderQty": "1190.000",
+     "maxMktOrderQty": "500.000",
+     "minNotionalValue": "5"
+    },
+    "unifiedMarginTrade": true,
+    "fundingInterval": 480,
+    "settleCoin": "USDT",
+    "copyTrading": "both",
+    "upperFundingRate": "0.00375",
+    "lowerFundingRate": "-0.00375",
+    "isPreListing": false,
+    "preListingInfo": null,
+    "riskParameters": {
+     "priceLimitRatioX": "0.01",
+     "priceLimitRatioY": "0.02"
+    },
+    "symbolType": "",
+    "tags": []
+   }
+  },
+  {
+   "id": "ETHUSDT",
+   "lowercaseId": null,
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.01,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.01,
+     "max": 1190.0
+    },
+    "price": {
+     "min": 0.1,
+     "max": 1999999.8
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1585526400000,
+   "info": {
+    "symbol": "ETHUSDT",
+    "symbolId": null,
+    "contractType": "LinearPerpetual",
+    "status": "Trading",
+    "baseCoin": "ETH",
+    "quoteCoin": "USDT",
+    "launchTime": "1585526400000",
+    "deliveryTime": "0",
+    "deliveryFeeRate": "",
+    "priceScale": "2",
+    "leverageFilter": {
+     "minLeverage": "1",
+     "maxLeverage": "100.00",
+     "leverageStep": "0.01"
+    },
+    "priceFilter": {
+     "minPrice": "0.10",
+     "maxPrice": "1999999.80",
+     "tickSize": "0.10"
+    },
+    "lotSizeFilter": {
+     "maxOrderQty": "1190.000",
+     "minOrderQty": "0.01",
+     "qtyStep": "0.01",
+     "postOnlyMaxOrderQty": "1190.000",
+     "maxMktOrderQty": "500.000",
+     "minNotionalValue": "5"
+    },
+    "unifiedMarginTrade": true,
+    "fundingInterval": 480,
+    "settleCoin": "USDT",
+    "copyTrading": "both",
+    "upperFundingRate": "0.00375",
+    "lowerFundingRate": "-0.00375",
+    "isPreListing": false,
+    "preListingInfo": null,
+    "riskParameters": {
+     "priceLimitRatioX": "0.01",
+     "priceLimitRatioY": "0.02"
+    },
+    "symbolType": "",
+    "tags": []
+   }
+  },
+  {
+   "id": "SOLUSDT",
+   "lowercaseId": null,
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": 1190.0
+    },
+    "price": {
+     "min": 0.1,
+     "max": 1999999.8
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1585526400000,
+   "info": {
+    "symbol": "SOLUSDT",
+    "symbolId": null,
+    "contractType": "LinearPerpetual",
+    "status": "Trading",
+    "baseCoin": "SOL",
+    "quoteCoin": "USDT",
+    "launchTime": "1585526400000",
+    "deliveryTime": "0",
+    "deliveryFeeRate": "",
+    "priceScale": "2",
+    "leverageFilter": {
+     "minLeverage": "1",
+     "maxLeverage": "100.00",
+     "leverageStep": "0.01"
+    },
+    "priceFilter": {
+     "minPrice": "0.10",
+     "maxPrice": "1999999.80",
+     "tickSize": "0.10"
+    },
+    "lotSizeFilter": {
+     "maxOrderQty": "1190.000",
+     "minOrderQty": "0.1",
+     "qtyStep": "0.1",
+     "postOnlyMaxOrderQty": "1190.000",
+     "maxMktOrderQty": "500.000",
+     "minNotionalValue": "5"
+    },
+    "unifiedMarginTrade": true,
+    "fundingInterval": 480,
+    "settleCoin": "USDT",
+    "copyTrading": "both",
+    "upperFundingRate": "0.00375",
+    "lowerFundingRate": "-0.00375",
+    "isPreListing": false,
+    "preListingInfo": null,
+    "riskParameters": {
+     "priceLimitRatioX": "0.01",
+     "priceLimitRatioY": "0.02"
+    },
+    "symbolType": "",
+    "tags": []
+   }
+  },
+  {
+   "id": "DOGEUSDT",
+   "lowercaseId": null,
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 1190.0
+    },
+    "price": {
+     "min": 0.1,
+     "max": 1999999.8
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1585526400000,
+   "info": {
+    "symbol": "DOGEUSDT",
+    "symbolId": null,
+    "contractType": "LinearPerpetual",
+    "status": "Trading",
+    "baseCoin": "DOGE",
+    "quoteCoin": "USDT",
+    "launchTime": "1585526400000",
+    "deliveryTime": "0",
+    "deliveryFeeRate": "",
+    "priceScale": "2",
+    "leverageFilter": {
+     "minLeverage": "1",
+     "maxLeverage": "100.00",
+     "leverageStep": "0.01"
+    },
+    "priceFilter": {
+     "minPrice": "0.10",
+     "maxPrice": "1999999.80",
+     "tickSize": "0.10"
+    },
+    "lotSizeFilter": {
+     "maxOrderQty": "1190.000",
+     "minOrderQty": "1",
+     "qtyStep": "1",
+     "postOnlyMaxOrderQty": "1190.000",
+     "maxMktOrderQty": "500.000",
+     "minNotionalValue": "5"
+    },
+    "unifiedMarginTrade": true,
+    "fundingInterval": 480,
+    "settleCoin": "USDT",
+    "copyTrading": "both",
+    "upperFundingRate": "0.00375",
+    "lowerFundingRate": "-0.00375",
+    "isPreListing": false,
+    "preListingInfo": null,
+    "riskParameters": {
+     "priceLimitRatioX": "0.01",
+     "priceLimitRatioY": "0.02"
+    },
+    "symbolType": "",
+    "tags": []
+   }
+  },
+  {
+   "id": "PEPEUSDT",
+   "lowercaseId": null,
+   "symbol": "PEPE/USDT:USDT",
+   "base": "PEPE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "PEPE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 100.0,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 100.0,
+     "max": 1190.0
+    },
+    "price": {
+     "min": 0.1,
+     "max": 1999999.8
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1585526400000,
+   "info": {
+    "symbol": "PEPEUSDT",
+    "symbolId": null,
+    "contractType": "LinearPerpetual",
+    "status": "Trading",
+    "baseCoin": "PEPE",
+    "quoteCoin": "USDT",
+    "launchTime": "1585526400000",
+    "deliveryTime": "0",
+    "deliveryFeeRate": "",
+    "priceScale": "2",
+    "leverageFilter": {
+     "minLeverage": "1",
+     "maxLeverage": "100.00",
+     "leverageStep": "0.01"
+    },
+    "priceFilter": {
+     "minPrice": "0.10",
+     "maxPrice": "1999999.80",
+     "tickSize": "0.10"
+    },
+    "lotSizeFilter": {
+     "maxOrderQty": "1190.000",
+     "minOrderQty": "100",
+     "qtyStep": "100",
+     "postOnlyMaxOrderQty": "1190.000",
+     "maxMktOrderQty": "500.000",
+     "minNotionalValue": "5"
+    },
+    "unifiedMarginTrade": true,
+    "fundingInterval": 480,
+    "settleCoin": "USDT",
+    "copyTrading": "both",
+    "upperFundingRate": "0.00375",
+    "lowerFundingRate": "-0.00375",
+    "isPreListing": false,
+    "preListingInfo": null,
+    "riskParameters": {
+     "priceLimitRatioX": "0.01",
+     "priceLimitRatioY": "0.02"
+    },
+    "symbolType": "",
+    "tags": []
+   }
+  },
+  {
+   "id": "XRPUSDT",
+   "lowercaseId": null,
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 100.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": 1190.0
+    },
+    "price": {
+     "min": 0.1,
+     "max": 1999999.8
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1585526400000,
+   "info": {
+    "symbol": "XRPUSDT",
+    "symbolId": null,
+    "contractType": "LinearPerpetual",
+    "status": "Trading",
+    "baseCoin": "XRP",
+    "quoteCoin": "USDT",
+    "launchTime": "1585526400000",
+    "deliveryTime": "0",
+    "deliveryFeeRate": "",
+    "priceScale": "2",
+    "leverageFilter": {
+     "minLeverage": "1",
+     "maxLeverage": "100.00",
+     "leverageStep": "0.01"
+    },
+    "priceFilter": {
+     "minPrice": "0.10",
+     "maxPrice": "1999999.80",
+     "tickSize": "0.10"
+    },
+    "lotSizeFilter": {
+     "maxOrderQty": "1190.000",
+     "minOrderQty": "0.1",
+     "qtyStep": "0.1",
+     "postOnlyMaxOrderQty": "1190.000",
+     "maxMktOrderQty": "500.000",
+     "minNotionalValue": "5"
+    },
+    "unifiedMarginTrade": true,
+    "fundingInterval": 480,
+    "settleCoin": "USDT",
+    "copyTrading": "both",
+    "upperFundingRate": "0.00375",
+    "lowerFundingRate": "-0.00375",
+    "isPreListing": false,
+    "preListingInfo": null,
+    "riskParameters": {
+     "priceLimitRatioX": "0.01",
+     "priceLimitRatioY": "0.02"
+    },
+    "symbolType": "",
+    "tags": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,504 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``src/bytx/testing/markets/<ccxt id>.json`` (public ``bytx.testing`` snapshots).",
+ "exchange": "mexc",
+ "markets": [
+  {
+   "id": "BTC_USDT",
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0002,
+   "maker": 0.0,
+   "contractSize": 0.0001,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 500.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 400000.0
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "BTC_USDT",
+    "displayNameEn": "BTC_USDT PERPETUAL",
+    "positionOpenType": 3,
+    "baseCoin": "BTC",
+    "quoteCoin": "USDT",
+    "settleCoin": "USDT",
+    "contractSize": 0.0001,
+    "minLeverage": 1,
+    "maxLeverage": 500,
+    "priceScale": 1,
+    "volScale": 0,
+    "amountScale": 4,
+    "priceUnit": 0.1,
+    "volUnit": 1,
+    "minVol": 1,
+    "maxVol": 400000,
+    "takerFeeRate": 0.0002,
+    "makerFeeRate": 0,
+    "maintenanceMarginRate": 0.001,
+    "initialMarginRate": 0.002,
+    "riskBaseVol": 19000000,
+    "riskIncrVol": 0,
+    "riskIncrMmr": 0,
+    "riskIncrImr": 0,
+    "riskLevelLimit": 1,
+    "state": 0,
+    "isNew": false,
+    "isHot": false,
+    "isHidden": false,
+    "apiAllowed": true,
+    "limitMaxVol": 2500000
+   }
+  },
+  {
+   "id": "ETH_USDT",
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0002,
+   "maker": 0.0,
+   "contractSize": 0.01,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.01
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 500.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 400000.0
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "ETH_USDT",
+    "displayNameEn": "ETH_USDT PERPETUAL",
+    "positionOpenType": 3,
+    "baseCoin": "ETH",
+    "quoteCoin": "USDT",
+    "settleCoin": "USDT",
+    "contractSize": 0.01,
+    "minLeverage": 1,
+    "maxLeverage": 500,
+    "priceScale": 1,
+    "volScale": 0,
+    "amountScale": 4,
+    "priceUnit": 0.01,
+    "volUnit": 1,
+    "minVol": 1,
+    "maxVol": 400000,
+    "takerFeeRate": 0.0002,
+    "makerFeeRate": 0,
+    "maintenanceMarginRate": 0.001,
+    "initialMarginRate": 0.002,
+    "riskBaseVol": 19000000,
+    "riskIncrVol": 0,
+    "riskIncrMmr": 0,
+    "riskIncrImr": 0,
+    "riskLevelLimit": 1,
+    "state": 0,
+    "isNew": false,
+    "isHot": false,
+    "isHidden": false,
+    "apiAllowed": true,
+    "limitMaxVol": 2500000
+   }
+  },
+  {
+   "id": "SOL_USDT",
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0002,
+   "maker": 0.0,
+   "contractSize": 0.1,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.001
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 500.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 400000.0
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "SOL_USDT",
+    "displayNameEn": "SOL_USDT PERPETUAL",
+    "positionOpenType": 3,
+    "baseCoin": "SOL",
+    "quoteCoin": "USDT",
+    "settleCoin": "USDT",
+    "contractSize": 0.1,
+    "minLeverage": 1,
+    "maxLeverage": 500,
+    "priceScale": 1,
+    "volScale": 0,
+    "amountScale": 4,
+    "priceUnit": 0.001,
+    "volUnit": 1,
+    "minVol": 1,
+    "maxVol": 400000,
+    "takerFeeRate": 0.0002,
+    "makerFeeRate": 0,
+    "maintenanceMarginRate": 0.001,
+    "initialMarginRate": 0.002,
+    "riskBaseVol": 19000000,
+    "riskIncrVol": 0,
+    "riskIncrMmr": 0,
+    "riskIncrImr": 0,
+    "riskLevelLimit": 1,
+    "state": 0,
+    "isNew": false,
+    "isHot": false,
+    "isHidden": false,
+    "apiAllowed": true,
+    "limitMaxVol": 2500000
+   }
+  },
+  {
+   "id": "DOGE_USDT",
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0002,
+   "maker": 0.0,
+   "contractSize": 100.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 1e-05
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 500.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 400000.0
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "DOGE_USDT",
+    "displayNameEn": "DOGE_USDT PERPETUAL",
+    "positionOpenType": 3,
+    "baseCoin": "DOGE",
+    "quoteCoin": "USDT",
+    "settleCoin": "USDT",
+    "contractSize": 100,
+    "minLeverage": 1,
+    "maxLeverage": 500,
+    "priceScale": 1,
+    "volScale": 0,
+    "amountScale": 4,
+    "priceUnit": 1e-05,
+    "volUnit": 1,
+    "minVol": 1,
+    "maxVol": 400000,
+    "takerFeeRate": 0.0002,
+    "makerFeeRate": 0,
+    "maintenanceMarginRate": 0.001,
+    "initialMarginRate": 0.002,
+    "riskBaseVol": 19000000,
+    "riskIncrVol": 0,
+    "riskIncrMmr": 0,
+    "riskIncrImr": 0,
+    "riskLevelLimit": 1,
+    "state": 0,
+    "isNew": false,
+    "isHot": false,
+    "isHidden": false,
+    "apiAllowed": true,
+    "limitMaxVol": 2500000
+   }
+  },
+  {
+   "id": "XRP_USDT",
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0002,
+   "maker": 0.0,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 500.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 400000.0
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "XRP_USDT",
+    "displayNameEn": "XRP_USDT PERPETUAL",
+    "positionOpenType": 3,
+    "baseCoin": "XRP",
+    "quoteCoin": "USDT",
+    "settleCoin": "USDT",
+    "contractSize": 1,
+    "minLeverage": 1,
+    "maxLeverage": 500,
+    "priceScale": 1,
+    "volScale": 0,
+    "amountScale": 4,
+    "priceUnit": 0.0001,
+    "volUnit": 1,
+    "minVol": 1,
+    "maxVol": 400000,
+    "takerFeeRate": 0.0002,
+    "makerFeeRate": 0,
+    "maintenanceMarginRate": 0.001,
+    "initialMarginRate": 0.002,
+    "riskBaseVol": 19000000,
+    "riskIncrVol": 0,
+    "riskIncrMmr": 0,
+    "riskIncrImr": 0,
+    "riskLevelLimit": 1,
+    "state": 0,
+    "isNew": false,
+    "isHot": false,
+    "isHidden": false,
+    "apiAllowed": true,
+    "limitMaxVol": 2500000
+   }
+  },
+  {
+   "id": "PEPE_USDT",
+   "symbol": "PEPE/USDT:USDT",
+   "base": "PEPE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "PEPE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "taker": 0.0002,
+   "maker": 0.0,
+   "contractSize": 10000000.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 1e-10
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 500.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": 400000.0
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "created": null,
+   "info": {
+    "symbol": "PEPE_USDT",
+    "displayNameEn": "PEPE_USDT PERPETUAL",
+    "positionOpenType": 3,
+    "baseCoin": "PEPE",
+    "quoteCoin": "USDT",
+    "settleCoin": "USDT",
+    "contractSize": 10000000,
+    "minLeverage": 1,
+    "maxLeverage": 500,
+    "priceScale": 1,
+    "volScale": 0,
+    "amountScale": 4,
+    "priceUnit": 1e-10,
+    "volUnit": 1,
+    "minVol": 1,
+    "maxVol": 400000,
+    "takerFeeRate": 0.0002,
+    "makerFeeRate": 0,
+    "maintenanceMarginRate": 0.001,
+    "initialMarginRate": 0.002,
+    "riskBaseVol": 19000000,
+    "riskIncrVol": 0,
+    "riskIncrMmr": 0,
+    "riskIncrImr": 0,
+    "riskLevelLimit": 1,
+    "state": 0,
+    "isNew": false,
+    "isHot": false,
+    "isHidden": false,
+    "apiAllowed": true,
+    "limitMaxVol": 2500000
+   }
+  }
+ ]
+}

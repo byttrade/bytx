@@ -1,0 +1,232 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``tests/fixtures/markets/<ccxt id>.json``.",
+ "exchange": "hyperliquid",
+ "markets": [
+  {
+   "id": "0",
+   "lowercaseId": null,
+   "symbol": "BTC/USDC:USDC",
+   "base": "BTC",
+   "quote": "USDC",
+   "settle": "USDC",
+   "baseId": "0",
+   "quoteId": "USDC",
+   "settleId": "USDC",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.00035,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1e-05,
+    "price": 0.1
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": 50
+    },
+    "amount": {
+     "min": null,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 10.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "name": "BTC",
+    "szDecimals": 5,
+    "maxLeverage": 50,
+    "dayNtlVlm": "1169046.29406",
+    "funding": "0.0000125",
+    "impactPxs": [
+     "14.3047",
+     "14.3444"
+    ],
+    "markPx": "14.3161",
+    "midPx": "14.314",
+    "openInterest": "688.11",
+    "oraclePx": "14.32",
+    "premium": "0.00031774",
+    "prevDayPx": "15.322",
+    "baseId": 0
+   }
+  },
+  {
+   "id": "1",
+   "lowercaseId": null,
+   "symbol": "ETH/USDC:USDC",
+   "base": "ETH",
+   "quote": "USDC",
+   "settle": "USDC",
+   "baseId": "1",
+   "quoteId": "USDC",
+   "settleId": "USDC",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.00035,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.0001,
+    "price": 0.01
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": 50
+    },
+    "amount": {
+     "min": null,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 10.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "name": "ETH",
+    "szDecimals": 4,
+    "maxLeverage": 50,
+    "dayNtlVlm": "1426126.295175",
+    "funding": "0.0000125",
+    "impactPxs": [
+     "6.0386",
+     "6.0562"
+    ],
+    "markPx": "6.0436",
+    "midPx": "6.0431",
+    "openInterest": "1882.55",
+    "oraclePx": "6.0457",
+    "premium": "0.00028119",
+    "prevDayPx": "6.3611",
+    "baseId": 1
+   }
+  },
+  {
+   "id": "2",
+   "lowercaseId": null,
+   "symbol": "HPOS/USDC:USDC",
+   "base": "HPOS",
+   "quote": "USDC",
+   "settle": "USDC",
+   "baseId": "2",
+   "quoteId": "USDC",
+   "settleId": "USDC",
+   "type": "swap",
+   "spot": false,
+   "margin": null,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.00035,
+   "maker": 0.0001,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001
+   },
+   "limits": {
+    "leverage": {
+     "min": null,
+     "max": 3
+    },
+    "amount": {
+     "min": null,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": 10.0,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": null,
+   "info": {
+    "name": "HPOS",
+    "szDecimals": 0,
+    "maxLeverage": 3,
+    "onlyIsolated": true,
+    "dayNtlVlm": "809774.565507",
+    "funding": "0.0000125",
+    "impactPxs": [
+     "8.4505",
+     "8.4722"
+    ],
+    "markPx": "8.4542",
+    "midPx": "8.4557",
+    "openInterest": "2912.05",
+    "oraclePx": "8.4585",
+    "premium": "0.00033694",
+    "prevDayPx": "8.8097",
+    "baseId": 2
+   }
+  }
+ ]
+}
