@@ -119,7 +119,10 @@ currency (`Market.settle`: USDC on Hyperliquid); if the currency is missing from
 `ExchangeError`, not 0. `Position.side` is `'long'`/`'short'` in hedge mode too on every exchange (Bybit
 `positionIdx`, OKX `posSide`, Binance/BingX/KuCoin `positionSide`), `Position.hedged` marks a hedge-mode
 position, `margin_mode` is `'cross'`/`'isolated'`, `raw` is the underlying response. `positions(include_zero=True)`
-also returns the exchange's zero entries (`size=0`; a zero one-way position has `side=None`).
+also returns the exchange's zero entries (`size=0`; a zero one-way position has `side=None`). `Fill.position_side`
+is the hedge position side of a trade from the exchange's data (REST and WS: Binance/BingX `positionSide`/`ps`, OKX
+`posSide`); `None` — one-way, or the exchange doesn't report the side in a trade (Bybit has `positionIdx` only on the
+order, not on the execution).
 
 **Trading:** `buy` / `sell` / `place_order` (market/limit, `post_only`, `time_in_force`, `reduce_only`,
 `take_profit` / `stop_loss`, `client_id`), `place_orders`, `amend_order`, `cancel_order`, `cancel_orders`,
@@ -198,9 +201,17 @@ last 500 closed orders.
   open position. `margin_mode_of(symbol)` returns `None` if no mode is set.
 - KuCoin takes leverage from each order: an opening order without `set_leverage` on this instance
   raises `ConfigError` rather than defaulting to 1x.
+- KuCoin keeps the margin mode both in the order and on the symbol; an order in a mode other than the
+  symbol's is rejected (330005). `set_margin_mode(symbol, mode)` reads the symbol's mode
+  (`GET /api/v2/position/getMarginMode`) and, if different, switches it (`POST /api/v2/position/changeMarginMode`,
+  the response is checked); an exchange rejection raises and the SDK keeps the previous symbol mode.
 - `set_leverage(symbol, x)` returns the leverage the exchange reported as applied (lower than
   requested — capped by tier), or `None` if the exchange doesn't report it (Bybit, Hyperliquid, KuCoin).
   An open position on the symbol raises `bytx.PositionOpenError`; `allow_open_position=True` skips the check.
+- `set_leverage(symbol, x, side='long'|'short')` sets leverage of one hedge position side (the other side is not
+  changed, only this side's position is checked): OKX isolated + long/short (`posSide`), BingX hedge (`side`),
+  Bybit hedge (`buyLeverage`/`sellLeverage`; in cross the exchange requires them equal — rejection 10001).
+  Binance (one leverage per symbol), OKX cross, one-way and other exchanges — `NotSupported` before any request.
 - `leverage(symbol, side=, margin_mode=)` reads leverage for a side and margin bucket. `None` — the exchange
   doesn't report it. Different long and short leverage without `side` raises `ConfigError`.
 - `is_hedge_mode(refresh=True)` re-reads the mode from the exchange. `set_position_mode` updates the cache

@@ -5,7 +5,9 @@ Sources, per exchange docs (ccxt is only the transport, implicit methods):
 - binance:  GET /fapi/v1/income, incomeType=FUNDING_FEE; income: + received / − paid;
             limit ≤ 1000, history — 3 months.
 - bybit:    GET /v5/account/transaction-log (UTA), type=SETTLEMENT; field funding:
-            «Positive fee value means receive funding; negative ... pay funding»;
+            «Positive fee value means receive funding; negative ... pay funding»; the row's side is
+            the position side (Buy — long, Sell — short: «For side=Buy, feeRate=market fee rate;
+            For side=Sell, feeRate= - market fee rate»), in hedge mode — a row per side;
             endTime − startTime ≤ 7 days, limit ≤ 50, cursor. The request has NO symbol parameter
             (only accountType/category/currency/baseCoin/type/...) — the request is narrowed by
             baseCoin, rows are filtered by response field symbol == market id; the window is split
@@ -24,6 +26,10 @@ Sources, per exchange docs (ccxt is only the transport, implicit methods):
 Symbol: binance/bingx (symbol), okx (instId), kucoin (symbol) filter by symbol on the
 exchange side; rows with another symbol in the response are dropped as well
 (_funding_other_symbol). hyperliquid — filtered by delta.coin.
+
+Position side of a record (``side`` 'long' / 'short') — only where the exchange reports it (Bybit SETTLEMENT).
+Binance / BingX income (symbol, incomeType, income, asset, info, time, tranId, tradeId), OKX bills,
+KuCoin funding-history, Hyperliquid userFunding don't report it — the record has no ``side`` key.
 
 No error propagates: on failure/unsupported exchange complete=False.
 """
@@ -53,6 +59,14 @@ def _int(value):
     return int(v) if v is not None else None
 
 
+_BYBIT_SETTLEMENT_SIDE = {'buy': 'long', 'sell': 'short'}
+
+
+def bybit_settlement_side(row: dict):
+    """Position side of a /v5/account/transaction-log SETTLEMENT row: Buy — long, Sell — short, otherwise None."""
+    return _BYBIT_SETTLEMENT_SIDE.get(str(row.get('side') or '').lower())
+
+
 class _Incomplete(Exception):
     """Window data is incomplete (page limit, history depth)."""
 
@@ -66,7 +80,8 @@ class FundingHistory(ABC):
 
         Returns:
             {'total': float — sum in the market's settlement currency (+ received / − paid),
-             'items': [{'ts', 'amount', 'currency', 'rate'?}] sorted by ts ascending,
+             'items': [{'ts', 'amount', 'currency', 'rate'?, 'side'?}] sorted by ts ascending
+             ('side' — position side 'long' / 'short' where the exchange reports it: Bybit),
              'complete': bool — False on error, unsupported exchange, window deeper than
              exchange history, or broken pagination; total is then the sum of what was fetched}.
         """
@@ -107,7 +122,7 @@ class FundingHistory(ABC):
                     f"[{self.bot_id}]\t⚠️ Funding history incomplete ({name} {market.get('symbol')}): {e.args[0]}")
 
             items, seen = [], set()
-            for key, ts, amount, currency, rate in raw:
+            for key, ts, amount, currency, rate, *extra in raw:
                 if ts is None or amount is None or not (since <= ts <= until):
                     continue
                 if key is not None:
@@ -117,6 +132,9 @@ class FundingHistory(ABC):
                 item = {'ts': ts, 'amount': amount, 'currency': currency or settle}
                 if rate is not None:
                     item['rate'] = rate
+                side = extra[0] if extra else None
+                if side is not None:
+                    item['side'] = side
                 items.append(item)
             items.sort(key=lambda i: i['ts'])
 
@@ -225,8 +243,11 @@ class FundingHistory(ABC):
                         continue      # USDC session settlement — no funding
                     if r.get('symbol') != market['id']:
                         continue      # funding for another account symbol
-                    acc.append((r.get('id'), _int(r.get('transactionTime')), amount,
-                                r.get('currency'), _num(r.get('feeRate'))))
+                    side = bybit_settlement_side(r)
+                    # hedge: a row per side; the key carries the side (the rows of both sides may share an id)
+                    key = r.get('id') if side is None or r.get('id') is None else f"{r.get('id')}:{side}"
+                    acc.append((key, _int(r.get('transactionTime')), amount,
+                                r.get('currency'), _num(r.get('feeRate')), side))
                 next_cursor = result.get('nextPageCursor')
                 if not next_cursor or not result.get('list'):
                     break

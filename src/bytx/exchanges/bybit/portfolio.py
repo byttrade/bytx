@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from bytx.exchanges._funding_history import bybit_settlement_side
 from bytx.exchanges._income_common import DAY_MS, Pages, add, check_depth, num
 from bytx.portfolio import IncomeResult
 
@@ -44,7 +45,10 @@ def parse_rows(result: IncomeResult, seen: set, rows: list, since: int, until: i
         if fee:
             add(result, seen, base + ('fee',), kind='fee', amount=-fee, **common)
         if num(r.get('funding')):
-            add(result, seen, base + ('funding',), kind='funding', amount=r.get('funding'), **common)
+            # SETTLEMENT side is the position side (hedge: a row per side, ids may repeat — the side is in the key)
+            side = bybit_settlement_side(r)
+            add(result, seen, base + (side, 'funding'), kind='funding', amount=r.get('funding'), side=side,
+                **common)
         if r.get('type') in REALIZED_TYPES and num(r.get('cashFlow')):
             add(result, seen, base + ('realized',), kind='realized', amount=r.get('cashFlow'), **common)
 

@@ -419,19 +419,25 @@ class PaperExchange(Exchange):
     async def is_hedge_mode(self, symbol: Optional[str] = None, *, refresh: bool = False) -> bool:
         return bool(self._hedge)
 
-    async def set_leverage(self, symbol: str, leverage: float, *,
+    async def set_leverage(self, symbol: str, leverage: float, *, side: Optional[PositionSide] = None,
                            allow_open_position: bool = False) -> Optional[float]:
         """As on the exchange: integer leverage where the exchange requires it; OKX/HL — margin mode required; with an open
-        position — ``PositionOpenError`` (without ``allow_open_position``). Returns the leverage."""
+        position — ``PositionOpenError`` (without ``allow_open_position``). Returns the leverage.
+
+        ``side`` — the same checks as on the exchange (:meth:`Exchange.set_leverage`: NotSupported, only this side's
+        position is checked); the paper engine keeps one leverage per symbol — that one is changed."""
+        if side is not None and side not in ('long', 'short'):
+            raise ConfigError(f"side: 'long' or 'short' (position side), not {side!r}", exchange=self.name)
         await self.connect()
         s = self.symbol(symbol)
         if self._ex.id in _INT_LEVERAGE:
             if leverage != int(leverage):
                 raise ConfigError(f'leverage on {self.name} must be an integer: {leverage}', exchange=self.name)
             leverage = int(leverage)
-        if self._ex.id in ('okx', 'hyperliquid'):
-            self._need_margin_mode(s)
-        if not allow_open_position and self.engine.positions(s):
+        mode = self._need_margin_mode(s) if self._ex.id in ('okx', 'hyperliquid') else self.margin_mode_of(s)
+        if side is not None:
+            await self._check_side_leverage(s, side, mode)
+        if not allow_open_position and any(side is None or p.side == side for p in self.engine.positions(s)):
             raise PositionOpenError(f'position open on {s}: leverage is not changed', symbol=s,
                                     exchange=self.name)
         self.engine.set_leverage(s, float(leverage))

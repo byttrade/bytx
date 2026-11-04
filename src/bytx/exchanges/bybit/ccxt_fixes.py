@@ -14,6 +14,10 @@ Reference — Bybit V5 docs (https://bybit-exchange.github.io/docs/v5):
   ``side`` = ``""``. ccxt treats an empty ``side`` as closing BOTH sides and zeroes in the cache the long that
   just arrived in the same push (demo 2026-10-30: an open 0.01 was always 0 in the stream — the Bybit position
   stream «didn't respond», 4 answers out of 378 reads).
+- order/batch-cancel: each order's code is ``retExtInfo.list`` at the same index (docs example: rejection 170213
+  «Order does not exist.», empty ``orderId``). ccxt 4.4.65 merges the code into the ``result.list`` row for
+  create-batch and amend-batch, but not for cancel-batch: an item rejection (including rate limit 10006) looked
+  like a cancel.
 """
 from __future__ import annotations
 
@@ -33,6 +37,7 @@ def apply(exchange: Any) -> None:
     _patch_ws_order_book_levels(exchange)
     _patch_ticker_time(exchange)
     _patch_ws_hedge_position_side(exchange)
+    _patch_cancel_batch_codes(exchange)
     setattr(exchange, _PATCHED_ATTR, True)
 
 
@@ -193,6 +198,29 @@ def _patch_ticker_time(ex: Any) -> None:
 
     ex.publicGetV5MarketTickers = public_get_v5_market_tickers
     ex.public_get_v5_market_tickers = public_get_v5_market_tickers
+
+
+def _patch_cancel_batch_codes(ex: Any) -> None:
+    """order/batch-cancel: the per-order code ``retExtInfo.list[i]`` goes into the ``result.list[i]`` row (as ccxt does
+    for create-batch and amend-batch): an item with a non-zero ``code`` is parsed as a rejection, not a cancel."""
+    original = getattr(ex, 'privatePostV5OrderCancelBatch', None)
+    if original is None:
+        return
+
+    async def private_post_v5_order_cancel_batch(params={}, *args, **kwargs):  # noqa: B006 — ccxt signature
+        response = await original(params, *args, **kwargs)
+        result = response.get('result') if isinstance(response, dict) else None
+        info = response.get('retExtInfo') if isinstance(response, dict) else None
+        rows = result.get('list') if isinstance(result, dict) else None
+        codes = info.get('list') if isinstance(info, dict) else None
+        if isinstance(rows, list) and isinstance(codes, list):
+            for row, code in zip(rows, codes):
+                if isinstance(row, dict) and isinstance(code, dict) and str(code.get('code', 0)) not in ('0', ''):
+                    row.update(code)
+        return response
+
+    ex.privatePostV5OrderCancelBatch = private_post_v5_order_cancel_batch
+    ex.private_post_v5_order_cancel_batch = private_post_v5_order_cancel_batch
 
 
 _HEDGE_IDX_SIDE = {1: 'Buy', 2: 'Sell'}

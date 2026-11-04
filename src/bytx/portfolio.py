@@ -52,7 +52,9 @@ class IncomeItem:
     """A single normalized exchange cash flow record.
 
     ``amount`` — signed balance change (+ in / − out): for ``fee`` the paid fee is
-    negative (as in exchange logs); in :class:`IncomeTotals` totals it already carries the "expense" sign."""
+    negative (as in exchange logs); in :class:`IncomeTotals` totals it already carries the "expense" sign.
+    ``side`` — the position side ('long' / 'short') of a funding record where the exchange reports it (Bybit
+    SETTLEMENT: in hedge mode a row per side); otherwise None."""
 
     ts: int
     kind: IncomeKind
@@ -60,6 +62,7 @@ class IncomeItem:
     currency: str
     symbol: Optional[str] = None
     id: Optional[str] = None
+    side: Optional[str] = None
 
 
 @dataclass(slots=True)

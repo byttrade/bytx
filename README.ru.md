@@ -119,7 +119,9 @@ Binance — `/fapi/v1/leverageBracket` с ключами, без ключей �
 `ExchangeError`, а не 0. `Position.side` равен `'long'`/`'short'` и в hedge-режиме на любой бирже (Bybit
 `positionIdx`, OKX `posSide`, Binance/BingX/KuCoin `positionSide`), `Position.hedged` помечает позицию
 в hedge-режиме, `margin_mode` — `'cross'`/`'isolated'`, `raw` — исходный ответ. `positions(include_zero=True)`
-возвращает и нулевые записи биржи (`size=0`; у нулевой one-way позиции `side=None`).
+возвращает и нулевые записи биржи (`size=0`; у нулевой one-way позиции `side=None`). `Fill.position_side` —
+сторона hedge-позиции сделки из данных биржи (REST и WS: Binance/BingX `positionSide`/`ps`, OKX `posSide`);
+`None` — one-way или биржа не отдаёт сторону в сделке (у Bybit `positionIdx` есть только у ордера, не у исполнения).
 
 **Торговля:** `buy` / `sell` / `place_order` (market/limit, `post_only`, `time_in_force`, `reduce_only`,
 `take_profit` / `stop_loss`, `client_id`), `place_orders`, `amend_order`, `cancel_order`, `cancel_orders`,
@@ -198,9 +200,17 @@ Binance — `/fapi/v1/leverageBracket` с ключами, без ключей �
   открытой позиции. `margin_mode_of(symbol)` возвращает `None`, если режим не задан.
 - KuCoin берёт плечо из каждого ордера: открывающий ордер без `set_leverage` на этом инстансе
   выбрасывает `ConfigError`, а не ставит 1x по умолчанию.
+- KuCoin хранит режим маржи и в ордере, и у символа; ордер в режиме, отличном от режима символа, биржа
+  отклоняет (330005). `set_margin_mode(symbol, mode)` читает режим символа
+  (`GET /api/v2/position/getMarginMode`) и, если он другой, переключает его (`POST /api/v2/position/changeMarginMode`,
+  ответ сверяется); отказ биржи выбрасывает исключение, а SDK сохраняет прежний режим символа.
 - `set_leverage(symbol, x)` возвращает плечо, которое биржа сообщила как применённое (ниже
   запрошенного — ограничено уровнем), или `None`, если биржа его не сообщает (Bybit, Hyperliquid, KuCoin).
   При открытой позиции по символу выбрасывается `bytx.PositionOpenError`; `allow_open_position=True` отключает проверку.
+- `set_leverage(symbol, x, side='long'|'short')` ставит плечо одной стороны hedge-позиции (вторая сторона не
+  меняется, проверяется позиция только своей стороны): OKX isolated + long/short (`posSide`), BingX hedge (`side`),
+  Bybit hedge (`buyLeverage`/`sellLeverage`; в cross биржа требует равных — отказ 10001).
+  Binance (плечо одно на символ), OKX cross, one-way и остальные биржи — `NotSupported` до запросов.
 - `leverage(symbol, side=, margin_mode=)` читает плечо для стороны и корзины маржи. `None` — биржа
   его не сообщает. Разное плечо для long и short без `side` выбрасывает `ConfigError`.
 - `is_hedge_mode(refresh=True)` перечитывает режим с биржи. `set_position_mode` обновляет кэш

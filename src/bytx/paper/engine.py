@@ -679,7 +679,8 @@ class PaperEngine:
         o.updated = now
         self.fees_paid += fee
         fill = Fill(f'F{next(self._fill_ids)}', o.id, o.client_id, s, o.side, price, qty * cs, fee, cur, maker,  # type: ignore[arg-type]
-                    now, raw={'paper': {'realized_pnl': realized, 'liquidation': o.liquidation}}, contracts=qty)
+                    now, raw={'paper': {'realized_pnl': realized, 'liquidation': o.liquidation}}, contracts=qty,
+                    position_side=o.pos_side if o.pos_side in ('long', 'short') else None)  # type: ignore[arg-type]
         self._fills.append(fill)
         self._events.append(('fills', fill))
         self._balance_dirty = True

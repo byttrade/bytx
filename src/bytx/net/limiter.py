@@ -48,11 +48,13 @@ ACCOUNT_ENDPOINTS: dict[str, list[tuple[re.Pattern, _Rule]]] = {
         (re.compile(r'^(POST|PUT) fapiPrivate:(order|algoOrder)$'), (1.0, 0.0)),
         (re.compile(r'^(POST|PUT) fapiPrivate:batchOrders$'), (10 / 3, None)),
     ],
-    # Bybit v5: order limits «per second and UID» (create/amend 10/s, cancel 20/s),
-    # per IP — 600 requests per 5 s = 120/s → 50/120 units (20 ms) per request.
+    # Bybit v5: order limits «per second and UID» — Rate Limit docs, Trade table (UTA Pro and Classic):
+    # create / amend / cancel — 10/s for inverse and linear (20/s for cancel and create — spot only; the stricter
+    # one is used here, the client's market doesn't matter: 10/s = 5 units of 20 ms). Cancel used to be 2.5 (20/s):
+    # a mass cancel ran twice as fast as the limit and hit 10006.
+    # Per IP — 600 requests per 5 s = 120/s → 50/120 units (20 ms) per request.
     'bybit': [
-        (re.compile(r'^POST private:v5/order/(create|amend)$'), (5.0, 5 / 12)),
-        (re.compile(r'^POST private:v5/order/cancel$'), (2.5, 5 / 12)),
+        (re.compile(r'^POST private:v5/order/(create|amend|cancel)$'), (5.0, 5 / 12)),
         (re.compile(r'^POST private:v5/position/trading-stop$'), (5.0, 5 / 12)),
     ],
     # OKX: «Private REST endpoints are limited per User ID, public — per IP»

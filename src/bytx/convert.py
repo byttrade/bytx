@@ -400,7 +400,10 @@ def _order_fee(o: dict) -> tuple[Optional[float], Optional[str]]:
     return sum(_f(f['cost']) or 0.0 for f in fees), currencies.pop()
 
 
-def fill(t: dict, market: Optional[Market]) -> Fill:
+def fill(t: dict, market: Optional[Market], exchange: Any = None) -> Fill:
+    """ccxt trade → :class:`Fill`. ``exchange`` — ccxt id / SDK name / instance: the hedge position side
+    (``position_side``) follows the exchange's rules (:func:`bytx.journal.origin.position_side_of_fill`);
+    without it — the common fields ``positionSide`` / ``ps`` / ``posSide`` / ``positionIdx``."""
     fee = t.get('fee') or {}
     info = _info(t)
     taker = t.get('takerOrMaker')
@@ -418,7 +421,20 @@ def fill(t: dict, market: Optional[Market]) -> Fill:
         size=float(t.get('amount') or 0) * _cs(market), fee=_f(fee.get('cost')),
         fee_currency=fee.get('currency'), maker=maker,
         timestamp=t.get('timestamp'), raw=t, contracts=float(t.get('amount') or 0),
+        position_side=_fill_position_side(info, exchange),
     )
+
+
+def _fill_position_side(info: dict, exchange: Any) -> Optional[PositionSide]:
+    """The trade's hedge position side; None — one-way or the exchange doesn't report it in the trade (Bybit execution)."""
+    if exchange is not None:
+        from bytx.errors import ConfigError
+        from bytx.journal.origin import position_side_of_fill
+        try:
+            return cast(Optional[PositionSide], position_side_of_fill(exchange, info))
+        except ConfigError:
+            pass   # an exchange without origin rules (paper, test venues) — common fields
+    return hedge_side(info)[0]
 
 
 def _bingx_ws_cid(info: dict) -> Optional[str]:

@@ -117,7 +117,7 @@ class ExchangeHistorySource:
         else:
             raw, complete = await self._paged_trades(s, since, until)
         market = self.ex._market_or_none(s)
-        out = [convert.fill(t, market) for t in raw if (t.get('timestamp') or 0) <= until
+        out = [convert.fill(t, market, c.id) for t in raw if (t.get('timestamp') or 0) <= until
                and (t.get('timestamp') or 0) >= since]
         out.sort(key=lambda f: (f.timestamp or 0, str(f.id)))
         return out, complete

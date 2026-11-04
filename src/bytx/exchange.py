@@ -111,7 +111,8 @@ _SEPARATE_TP_SL = frozenset({'binance', 'hyperliquid', 'gate'})
 # Bitget marginMode is required in Place Order; MEXC openType is required; on HTX the mode selects the endpoint
 _MODE_IN_ORDER = frozenset({'okx', 'kucoinfutures', 'bitget', 'mexc', 'htx'})
 # Leverage is sent with the order (KuCoin leverage, MEXC leverage "must be provided when opening", HTX lever_rate is
-# required and equals the open position's leverage); set_leverage / set_margin_mode only store the value
+# required and equals the open position's leverage); set_leverage only stores the value, so does set_margin_mode,
+# except on KuCoin: there the mode also belongs to the symbol (Switch Margin Mode, exchanges/kucoin/margin_mode.py)
 _LEVERAGE_IN_ORDER = frozenset({'kucoinfutures', 'mexc', 'htx'})
 # Exchanges with a single position mode (one-way) where hedge is impossible.
 # Gate dual mode (close via auto_size / dual_side) is not yet supported by the SDK: one-way only.
@@ -119,6 +120,14 @@ _ONE_WAY_ONLY = {'hyperliquid', 'kucoinfutures', 'gate'}
 # The SDK trades one-way only, but the exchange has hedge (KuCoin Futures since 2025.09): the account mode is read
 # from the exchange before the first order; hedge raises ConfigError (only the user can switch the mode)
 _ONE_WAY_CHECKED = {'kucoinfutures'}
+# set_leverage(side=): exchanges where leverage is set for one side of a hedge position (Set leverage docs) —
+# OKX posSide (isolated, long/short), BingX side LONG/SHORT, Bybit buyLeverage/sellLeverage
+_SIDE_LEVERAGE = frozenset({'okx', 'bingx', 'bybit'})
+
+
+def _leverage_str(value: float) -> str:
+    """Leverage as a string without trailing zeros: 10.0 → '10', 2.5 → '2.5' (Bybit buyLeverage/sellLeverage — String)."""
+    return f'{float(value):.10g}'
 
 
 def _check_margin_mode(mode: Any, exchange: Optional[str]) -> MarginMode:
@@ -742,7 +751,7 @@ class Exchange:
             raw = await self._bybit_my_trades(s, since, limit)
         if raw is None:
             raw = await self._call(self._ex.fetch_my_trades, s, since, limit)
-        return [convert.fill(t, self._market_or_none(t.get('symbol'))) for t in raw or []]
+        return [convert.fill(t, self._market_or_none(t.get('symbol')), self._ex.id) for t in raw or []]
 
     async def _bybit_my_trades(self, s: str, since: Optional[int], limit: Optional[int]) -> list[dict]:
         """Bybit: the symbol's trades — all pages (100 each, cursor) over 7-day windows up to now; ccxt returns one page
@@ -1003,7 +1012,7 @@ class Exchange:
 
     # ─── trading settings ───────────────────────────────────────────────────
 
-    async def set_leverage(self, symbol: str, leverage: float, *,
+    async def set_leverage(self, symbol: str, leverage: float, *, side: Optional[PositionSide] = None,
                            allow_open_position: bool = False) -> Optional[float]:
         """Sets symbol leverage.
 
@@ -1016,7 +1025,18 @@ class Exchange:
         is sent. The check costs one
         positions request; ``allow_open_position=True`` skips it.
         OKX and Hyperliquid: a margin mode is required (:meth:`margin_mode_of`), otherwise ConfigError.
+
+        ``side`` ('long' / 'short'): leverage of this hedge position side only (the other side — e.g. another
+        strategy on the symbol — is not changed; only this side's position is checked). Where the exchange sets
+        leverage per side: OKX — isolated in long/short mode (``posSide``), BingX — hedge (``side`` LONG/SHORT),
+        Bybit — hedge (``buyLeverage`` / ``sellLeverage``, the other side keeps its current leverage; in cross Bybit
+        requires them equal — otherwise the exchange rejects with 10001). Otherwise
+        :class:`~bytx.errors.NotSupported` before any request: Binance (one leverage per symbol), OKX cross / net,
+        one-way, other exchanges. Silently changing both sides is not an option — it would change the other side's
+        leverage too. Without ``side`` — as before (both sides).
         """
+        if side is not None and side not in ('long', 'short'):
+            raise ConfigError(f"side: 'long' or 'short' (position side), not {side!r}", exchange=self.name)
         await self.connect()
         s = self.symbol(symbol)
         if self._ex.id in _INT_LEVERAGE:
@@ -1024,7 +1044,10 @@ class Exchange:
                 raise ConfigError(f'leverage on {self.name} must be an integer: {leverage}', exchange=self.name)
             leverage = int(leverage)
         mode = self._need_margin_mode(s) if self._ex.id in ('okx', 'hyperliquid') else self.margin_mode_of(s)
-        if not allow_open_position and any(p.symbol == s for p in await self.positions([s])):
+        if side is not None:
+            await self._check_side_leverage(s, side, mode)
+        if not allow_open_position and any(p.symbol == s and (side is None or p.side == side)
+                                           for p in await self.positions([s])):
             raise PositionOpenError(f'position open on {s}: leverage not changed', symbol=s,
                                     exchange=self.name)
         if self._ex.id in _LEVERAGE_IN_ORDER:
@@ -1032,7 +1055,9 @@ class Exchange:
             return None  # KuCoin / MEXC / HTX: leverage is sent with every order (order_params.position_params)
         params: dict = {}
         calls: list[dict] = []
-        if self._ex.id == 'okx':
+        if side is not None:
+            calls = [await self._side_leverage_params(s, leverage, side, mode)]
+        elif self._ex.id == 'okx':
             params['marginMode'] = mode
             params['lever'] = str(leverage)  # docs: lever is a String (ccxt 4.4.65 sends a number)
             if mode == 'isolated' and await self.is_hedge_mode(s):
@@ -1067,6 +1092,39 @@ class Exchange:
         self._leverage[s] = result if result is not None else leverage
         return result
 
+    async def _check_side_leverage(self, s: str, side: str, mode: Optional[str]) -> None:
+        """Can the exchange set leverage for one side of ``s`` (see :meth:`set_leverage`); no — NotSupported."""
+        ex_id = self._ex.id
+        reason: Optional[str] = None
+        if ex_id not in _SIDE_LEVERAGE:
+            reason = ('one leverage per symbol for both sides (POST /fapi/v1/leverage has no side)'
+                      if ex_id == 'binance' else 'per-side leverage is not supported by the SDK')
+        elif ex_id == 'okx' and mode != 'isolated':
+            reason = 'in cross the instrument leverage is shared by both sides (posSide — isolated long/short only)'
+        elif not await self.is_hedge_mode(s):
+            reason = 'the symbol is in one-way mode: the position has a single side'
+        if reason is not None:
+            raise NotSupported(f'{self.name}: leverage of the {side} side of {s} cannot be set — {reason}; compare '
+                               f'leverage({s!r}, {side!r}) with the required one or set leverage without side',
+                               exchange=self.name, details={'symbol': s, 'side': side, 'margin_mode': mode})
+
+    async def _side_leverage_params(self, s: str, leverage: float, side: str, mode: Optional[str]) -> dict:
+        """ccxt ``set_leverage`` params for one hedge position side (the exchange is checked by ``_check_side_leverage``)."""
+        if self._ex.id == 'okx':
+            # set-leverage docs: posSide «Only required when margin mode is isolated in long/short mode»
+            return {'marginMode': mode, 'lever': str(leverage), 'posSide': side}
+        if self._ex.id == 'bingx':
+            # Set Leverage docs: side «In the Hedge mode, LONG for long positions, SHORT for short positions»
+            return {'side': side.upper()}
+        # Bybit: buyLeverage and sellLeverage are both required — the other side keeps its own leverage
+        other = 'short' if side == 'long' else 'long'
+        current = await self.leverage(s, cast(PositionSide, other))
+        if current is None:
+            raise ExchangeError(f'leverage of the {other} side of {s} not read: /v5/position/list has no entry for '
+                                'the side', exchange=self.name, details={'symbol': s, 'side': other})
+        own, keep = _leverage_str(leverage), _leverage_str(current)
+        return {'buyLeverage': own if side == 'long' else keep, 'sellLeverage': keep if side == 'long' else own}
+
     async def set_margin_mode(self, symbol: str, mode: MarginMode, *,
                               leverage: Optional[float] = None) -> None:
         """Margin mode of one symbol: 'cross' or 'isolated'.
@@ -1074,16 +1132,25 @@ class Exchange:
         Changes only ``symbol``; other symbols use the client's ``margin_mode``
         (see :meth:`margin_mode_of`). Stored after a successful exchange response.
 
-        ``leverage``: the leverage OKX and Hyperliquid switch the mode with (on these exchanges the mode
+        ``leverage``: the leverage OKX, Hyperliquid and Gate switch the mode with (on these exchanges the mode
         change goes in the same request as leverage). If not set, the symbol's current leverage is used
         (:meth:`leverage`); if it cannot be determined, ConfigError; 1x is never substituted.
+
+        KuCoin: the mode is sent with every order and also belongs to the symbol (an order in another mode is
+        rejected, 330005): the symbol's mode is read (Get Margin Mode) and, if different, switched
+        (Switch Margin Mode). MEXC, HTX: only stored (the mode goes in the order / selects the endpoint).
         """
         mode = _check_margin_mode(mode, self.name)
         await self.connect()
         s = self.symbol(symbol)
+        if self._ex.id == 'kucoinfutures':
+            from bytx.exchanges.kucoin import margin_mode as kucoin_margin_mode
+            await kucoin_margin_mode.switch(self, s, mode)
+            self._margin_modes[s] = mode
+            return
         if self._ex.id in _LEVERAGE_IN_ORDER:
             self._margin_modes[s] = mode
-            return  # set on every order (KuCoin marginMode, MEXC openType, HTX endpoint)
+            return  # set on every order (MEXC openType, HTX endpoint)
         params: dict = {}
         if self._ex.id in ('okx', 'hyperliquid', 'gate'):
             lev = leverage if leverage is not None else self._leverage.get(s)
@@ -1403,7 +1470,8 @@ class Exchange:
 
     def _element_rejection(self, reason: tuple[Optional[str], str], request: dict) -> BytxError:
         """Batch item rejection → InvalidOrder; a code ccxt knows as insufficient funds
-        (Bitget 43012 / 40762) → InsufficientFunds, as with a single place_order."""
+        (Bitget 43012 / 40762) → InsufficientFunds, as with a single place_order. A rate limit (Bybit item 10006 —
+        the part of the batch over the limit) is refined by the caller: refine → RateLimited."""
         code, message = reason
         details = {'client_id': request['client_id'], 'symbol': request['symbol']}
         if code:
@@ -1725,7 +1793,9 @@ class Exchange:
                 if error is not None:
                     results[i] = error
                 elif reason is not None:
-                    results[i] = ExchangeError(reason[1], exchange=self.name, code=reason[0])
+                    # item code: "order not open" (order_not_open), rate limit — RateLimited (Bybit 10006)
+                    results[i] = refine_error(self._ex.id, ExchangeError(reason[1], exchange=self.name,
+                                                                         code=reason[0]))
                 elif not isinstance(o, dict):
                     results[i] = ExchangeError(f'order {ids[i]}: no cancel response', exchange=self.name)
                 else:

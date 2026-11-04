@@ -93,7 +93,7 @@ def fills(hub: Any) -> FeedSpec:
         return ex.watch_my_trades()
 
     def conv(raw: Any, feed: Feed) -> list:
-        return [convert.fill(t, exchange._market_or_none(t.get('symbol'))) for t in _logical_cids(ex, raw)]
+        return [convert.fill(t, exchange._market_or_none(t.get('symbol')), ex.id) for t in _logical_cids(ex, raw)]
 
     return FeedSpec(kind='fills', key=('fills',), symbol=None, watch=watch, convert=conv, policy='queue')
 

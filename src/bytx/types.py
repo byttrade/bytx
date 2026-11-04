@@ -297,7 +297,14 @@ class Order:
 
 @dataclass(slots=True)
 class Fill:
-    """Own trade (order fill)."""
+    """Own trade (order fill).
+
+    ``position_side`` — the hedge position side of the trade ('long' / 'short') from the exchange's own trade data
+    (REST and WS), by the rules of :func:`bytx.journal.origin.position_side_of_fill`: Binance ``positionSide``
+    / ``ps``, OKX ``posSide``, BingX ``positionSide`` / ``ps``, KuCoin ``positionSide``. None — one-way
+    (BOTH / net) or the exchange doesn't report the side in the trade: Bybit (``/v5/execution/list`` and WS
+    ``execution`` have no ``positionIdx`` — only the order has it), Hyperliquid, Gate.
+    """
 
     id: Optional[str]
     order_id: Optional[str]
@@ -312,6 +319,7 @@ class Fill:
     timestamp: Optional[int]
     raw: dict = field(repr=False, default_factory=dict)
     contracts: Optional[float] = None  # size in exchange units
+    position_side: Optional[PositionSide] = None
 
 
 @dataclass(slots=True)

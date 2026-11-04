@@ -87,7 +87,8 @@ def refine(exchange_id: Optional[str], error: BytxError) -> BytxError:
 
     "No position" / "size exceeds position" (unconditional codes) → B7 classes; funds —
     :class:`InsufficientFunds`; an explicit parameter reject (the table's ``INVALID_ORDER``) —
-    :class:`InvalidOrder`; account position mode not selected (``POSITION_MODE_NOT_SET``, KuCoin 330011) —
+    :class:`InvalidOrder`; rate limit (``RATE_LIMITED``: Bybit 10006 of a batch item, 170005, …) —
+    :class:`RateLimited`; account position mode not selected (``POSITION_MODE_NOT_SET``, KuCoin 330011) —
     :class:`ConfigError` with a hint. Unknown code or exchange — the error unchanged.
     """
     table = codes_of(exchange_id or '')
@@ -101,6 +102,12 @@ def refine(exchange_id: Optional[str], error: BytxError) -> BytxError:
         funds.__cause__ = error.__cause__ or error
         return funds
     codes = _codes(error)
+    if type(error) in (ExchangeError, InvalidOrder) and codes & getattr(table, 'RATE_LIMITED', frozenset()):
+        # a rate limit under a "rejection" class: a batch item (the SDK builds it as InvalidOrder) or a code ccxt
+        # doesn't know as a limit (Bybit 170005, 10429) — rejected before the engine, retry later, as RateLimitExceeded
+        limited = RateLimited(error.message, exchange=error.exchange, code=error.code, details=error.details)
+        limited.__cause__ = error.__cause__ or error
+        return limited
     if codes & getattr(table, 'POSITION_MODE_NOT_SET', frozenset()):
         # KuCoin 330011: account position mode not selected — an account setting, retrying will not help
         mode = ConfigError(f'{table.POSITION_MODE_HINT}: {error.message}', exchange=error.exchange,
