@@ -550,7 +550,7 @@ async def _set_bybit(ctx: _Ctx, take_profit: Optional[float],
         ctx.placed.append(_minimal(ctx, kind, float(req[price_key]), has_client_id=False))
     # trading-stop returns no id: find the created conditional orders with one request
     try:
-        listed = await _list_generic(ctx.ex, ctx.symbol, ctx.market)
+        listed = await _list_bybit(ctx.ex, ctx.symbol, ctx.market)
     except BytxError as e:
         logger.warning(f'bybit: TP/SL placed, but the order list was not fetched: {e}')
         listed = []
@@ -1082,6 +1082,29 @@ async def _list_generic(ex: 'Exchange', s: str, m: Market, params: Optional[dict
     return result
 
 
+async def _list_bybit(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
+    """Bybit: the symbol's conditional orders — all pages of /v5/order/realtime (limit 50, cursor), like
+    Exchange.open_orders: ccxt fetch_open_orders returns one page (20), so a stop behind the newest grid orders was not
+    visible. Rows are parsed by ccxt parse_order and wrapped by _wrap_listed."""
+    from bytx.exchanges.bybit import orders as bybit_orders
+    market = ex._ex.market(s)
+    result: list[TpSlOrder] = []
+    seen: set[str] = set()
+    cursor: Optional[str] = None
+    for _ in range(bybit_orders.OPEN_MAX_PAGES):
+        resp = await ex._call(ex._ex.private_get_v5_order_realtime, bybit_orders.open_request(market, cursor))
+        rows, cursor = bybit_orders.open_page(resp)
+        new = [r for r in rows if str(r.get('orderId')) not in seen]
+        seen.update(str(r.get('orderId')) for r in new)
+        for r in new:
+            wrapped = _wrap_listed(ex._ex.id, ex._ex.parse_order(r, market), m)
+            if wrapped is not None:
+                result.append(wrapped)
+        if not cursor or not new:
+            break
+    return result
+
+
 async def _list_binance(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
     # conditional TP/SL live in the Algo Order service (GET /fapi/v1/openAlgoOrders)
     raw = await ex._call(ex._ex.request, 'openAlgoOrders', 'fapiPrivate', 'GET', {})
@@ -1391,7 +1414,9 @@ async def tp_sl_orders(ex: 'Exchange', symbol: str, side: Optional[PositionSide]
         raise NotSupported('TP/SL is not supported', exchange=ex.name)
     s = ex.symbol(symbol)
     m = to_market(ex._ex.market(s), ex._ex.id)
-    lister = _LISTERS.get(ex._ex.id, _list_generic)
+    # Bybit is not in _LISTERS: its TP/SL live in the common open-orders list (conditional_symbols is empty), but the
+    # list is read over all pages (_list_bybit), not one ccxt page
+    lister = _LISTERS.get(ex._ex.id) or (_list_bybit if ex._ex.id == 'bybit' else _list_generic)
     orders = await lister(ex, s, m)
     for o in orders:
         if o.state is None:  # active list: the exchange gave no status — so it is waiting for the trigger

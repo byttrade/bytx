@@ -554,8 +554,28 @@ class Exchange:
         s = self.symbol(symbol) if symbol else None
         if s is None:
             self._ex.options['warnOnFetchOpenOrdersWithoutSymbol'] = False
+        elif self._ex.id == 'bybit':
+            return await self._bybit_open_orders(s)
         raw = await self._call(self._ex.fetch_open_orders, s)
         return [self._order(o) for o in raw]
+
+    async def _bybit_open_orders(self, s: str) -> list[Order]:
+        """Bybit: all pages of the symbol's open orders (50 each, ``nextPageCursor``) — ccxt returns only the first
+        20. Each page is a separate call through the rate limiter."""
+        from bytx.exchanges.bybit import orders as bybit_orders
+        market = self._ex.market(s)
+        out: list[Order] = []
+        seen: set[str] = set()
+        cursor: Optional[str] = None
+        for _ in range(bybit_orders.OPEN_MAX_PAGES):
+            resp = await self._call(self._ex.private_get_v5_order_realtime, bybit_orders.open_request(market, cursor))
+            rows, cursor = bybit_orders.open_page(resp)
+            new = [r for r in rows if str(r.get('orderId')) not in seen]
+            seen.update(str(r.get('orderId')) for r in new)
+            out += [self._order(self._ex.parse_order(r, market)) for r in new]
+            if not cursor or not new:
+                break
+        return out
 
     async def closed_orders(self, symbol: Optional[str] = None, *, since: Optional[int] = None,
                             limit: Optional[int] = None) -> list[Order]:
@@ -718,9 +738,43 @@ class Exchange:
             # BingX: fillHistory with tradeId (= WS "td"), so the trade id is the same in REST and the stream; allFillOrders
             # returns no id, a synthetic id caused double counting (demo VST 2026-10-29)
             raw = await self._call(history, s, since, limit)
+        if raw is None and s is not None and self._ex.id == 'bybit':
+            raw = await self._bybit_my_trades(s, since, limit)
         if raw is None:
             raw = await self._call(self._ex.fetch_my_trades, s, since, limit)
         return [convert.fill(t, self._market_or_none(t.get('symbol'))) for t in raw or []]
+
+    async def _bybit_my_trades(self, s: str, since: Optional[int], limit: Optional[int]) -> list[dict]:
+        """Bybit: the symbol's trades — all pages (100 each, cursor) over 7-day windows up to now; ccxt returns one page
+        (50) of one window. Each page is a separate call through the rate limiter; parsing — ccxt parse_trades."""
+        import time as _time
+
+        from bytx.exchanges.bybit import orders as bybit_orders
+        market = self._ex.market(s)
+        rows: list[dict] = []
+        seen: set[str] = set()
+        page_limit = min(bybit_orders.TRADES_PAGE_LIMIT, limit) if limit else bybit_orders.TRADES_PAGE_LIMIT
+        for start, end in bybit_orders.trade_windows(since, int(_time.time() * 1000)):
+            cursor: Optional[str] = None
+            for _ in range(bybit_orders.TRADES_MAX_PAGES):
+                resp = await self._call(self._ex.private_get_v5_execution_list,
+                                        bybit_orders.trades_request(market, start, end, cursor, page_limit))
+                page, cursor = bybit_orders.open_page(resp)
+                new = [r for r in page if str(r.get('execId')) not in seen]
+                seen.update(str(r.get('execId')) for r in new)
+                rows += new
+                if not cursor or not new or (limit is not None and len(rows) >= limit):
+                    break
+            else:
+                if cursor and (limit is None or len(rows) < limit):
+                    from loguru import logger
+                    logger.warning(f'{self.name}: my_trades {s} — {bybit_orders.TRADES_MAX_PAGES} pages in window '
+                                   f'{start}..{end}: older trades of the window were not read')
+            if limit is not None and len(rows) >= limit:
+                break
+        if limit is not None:
+            rows = rows[:limit]                          # rows are newest first: the latest ``limit`` trades
+        return self._ex.parse_trades(rows, market, since)
 
     async def trading_fee(self, symbol: str) -> TradingFee:
         await self.connect()
