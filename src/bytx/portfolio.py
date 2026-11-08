@@ -39,8 +39,9 @@ if TYPE_CHECKING:
 
 IncomeKind = Literal['realized', 'fee', 'funding']
 
-#: stablecoins added to the portfolio total 1:1 to USD (exchange equity in USD too)
-USD_LIKE = frozenset({'USD', 'USDT', 'USDC'})
+#: stablecoins added to the portfolio total 1:1 to USD (exchange equity in USD too);
+#: VST — the virtual USDT of the BingX demo environment (balance and Get Fund Flow on VST are in VST, demo 2026-11-04)
+USD_LIKE = frozenset({'USD', 'USDT', 'USDC', 'VST'})
 
 _PACKAGES = {'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx',
              'kucoinfutures': 'kucoin', 'hyperliquid': 'hyperliquid',
@@ -54,7 +55,9 @@ class IncomeItem:
     ``amount`` — signed balance change (+ in / − out): for ``fee`` the paid fee is
     negative (as in exchange logs); in :class:`IncomeTotals` totals it already carries the "expense" sign.
     ``side`` — the position side ('long' / 'short') of a funding record where the exchange reports it (Bybit
-    SETTLEMENT: in hedge mode a row per side); otherwise None."""
+    SETTLEMENT: in hedge mode a row per side); otherwise None. ``market`` — the record's market type ('spot' /
+    'swap' / 'future' / 'option') where one log covers markets with the same ids (Bybit UTA: ``category``); None —
+    the client's market."""
 
     ts: int
     kind: IncomeKind
@@ -63,6 +66,7 @@ class IncomeItem:
     symbol: Optional[str] = None
     id: Optional[str] = None
     side: Optional[str] = None
+    market: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -123,6 +127,9 @@ class AccountReport:
     issues: list[str] = field(default_factory=list)
     unavailable: set = field(default_factory=set)
     error: Optional[BytxError] = None
+    #: the ``symbols=`` filter (SDK symbols): log records, positions and unrealized PnL of these symbols only;
+    #: equity — always the whole account. None — a report for the whole account
+    symbols: Optional[list[str]] = None
 
     def _sum(self, attr: str) -> Optional[float]:
         kind = {'realized_pnl': 'realized', 'fees': 'fee', 'funding': 'funding'}[attr]
@@ -262,17 +269,51 @@ def _window(since: Optional[int], until: Optional[int]) -> tuple[int, int]:
     return start, end
 
 
+def market_symbol(ex: 'Exchange', market_id: Optional[str], market: Optional[str] = None) -> Optional[str]:
+    """SDK (ccxt) symbol of a log record by the exchange market id ('BTCUSDT', 'BTC-USDT-SWAP', Hyperliquid coin).
+
+    Exact id match only (no base+quote «gluing»: OKX spot 'BTC-USDT' is not the swap); an id shared by several
+    markets ('BTCUSDT' of spot and USDⓈ-M) — the market of the record's ``market`` type (Bybit ``category``), without
+    it — of the client's type; no market of that type on the client — the id as is. Not found — the id as is."""
+    if not market_id:
+        return market_id
+    c = ex.ccxt
+    markets = c.markets or {}
+    if market_id in markets:
+        return market_id
+    entries = [e for e in (getattr(c, 'markets_by_id', None) or {}).get(market_id) or [] if isinstance(e, dict)]
+    if entries:
+        if market is not None:
+            # spot vs derivatives (Bybit linear covers both swap perpetuals and future contracts: the type is by id)
+            same = [e for e in entries if (e.get('type') == 'spot') == (market == 'spot')]
+            fit = next((e for e in same if e.get('type') == market), same[0] if same else None)
+            return (fit.get('symbol') if fit else None) or market_id
+        fit = next((e for e in entries if (e.get('type') == 'spot') == (ex.market_type == 'spot')), entries[0])
+        return fit.get('symbol') or market_id
+    if ex.id == 'hyperliquid':
+        # the native HL instrument id is the coin ('BTC'); perpetuals — 'BTC/USDC:USDC' (convert.resolve_symbol)
+        from bytx.convert import resolve_symbol
+        return resolve_symbol(markets, {}, market_id, ex.market_type, ex.id) or market_id
+    return market_id
+
+
 async def account_report(ex: 'Exchange', *, since: Optional[int], until: Optional[int] = None,
                          name: Optional[str] = None, symbols: Optional[Iterable[str]] = None,
                          keep_items: bool = False) -> AccountReport:
     """Portfolio of a single account. Errors in individual parts are not raised; they make the report
-    incomplete (``complete=False``, reason in ``issues``)."""
+    incomplete (``complete=False``, reason in ``issues``).
+
+    The symbol of log records (``IncomeItem.symbol``) is the SDK symbol (:func:`market_symbol`), not the exchange
+    market id. ``symbols=`` (any symbol spelling: 'BTC/USDT:USDT', 'BTCUSDT') — a report for these symbols: log
+    records, positions and unrealized PnL of these symbols only; equity — of the whole account."""
     start, end = _window(since, until)
     report = AccountReport(name=name or ex.name, exchange=ex.name, since=start, until=end, demo=ex.demo)
     if getattr(ex, 'is_paper', False):
         raise NotSupported('portfolio: paper account — use its journal/balance directly', exchange=ex.name)
     await ex.connect()
     module = exchange_module(ex, 'portfolio')
+    syms = list(dict.fromkeys(ex.symbol(s) for s in symbols)) if symbols else None
+    report.symbols = syms
 
     try:
         report.equity = await module.equity(ex)
@@ -280,7 +321,9 @@ async def account_report(ex: 'Exchange', *, since: Optional[int], until: Optiona
         report.incomplete(f'equity: {e.message or e}')
 
     try:
-        positions = await ex.positions()
+        positions = await ex.positions()      # all: not every exchange reads a list of symbols in one call
+        if syms is not None:
+            positions = [p for p in positions if p.symbol in syms]
         report.positions = positions
         report.unrealized_pnl = sum(p.unrealized_pnl or 0.0 for p in positions)
         if any(p.unrealized_pnl is None for p in positions):
@@ -288,13 +331,17 @@ async def account_report(ex: 'Exchange', *, since: Optional[int], until: Optiona
     except BytxError as e:
         report.incomplete(f'positions: {e.message or e}')
 
-    syms = [ex.symbol(s) for s in symbols] if symbols else None
     try:
         result: IncomeResult = await module.income(ex, start, end, symbols=syms, positions=report.positions)
     except BytxError as e:
         result = IncomeResult()
         result.unavailable = {'realized', 'fee', 'funding'}
         result.incomplete(f'income: {e.message or e}')
+    for item in result.items:
+        item.symbol = market_symbol(ex, item.symbol, item.market)
+    if syms is not None:
+        wanted = set(syms)
+        result.items = [i for i in result.items if i.symbol in wanted]
     for item in result.items:
         report.totals.setdefault(item.currency, IncomeTotals(item.currency)).add(item)
     if keep_items:
@@ -331,4 +378,4 @@ async def portfolio(pool: 'AccountPool', *, since: Optional[int], until: Optiona
 
 
 __all__ = ['AccountReport', 'CSV_FIELDS', 'IncomeItem', 'IncomeResult', 'IncomeTotals', 'PortfolioReport',
-           'USD_LIKE', 'account_report', 'portfolio']
+           'USD_LIKE', 'account_report', 'market_symbol', 'portfolio']

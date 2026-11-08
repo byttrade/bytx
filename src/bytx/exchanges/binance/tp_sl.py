@@ -20,6 +20,17 @@ OCO = ('emulated', 'https://developers.binance.com/docs/derivatives/usds-margine
 ATTACHED_SL = (False, 'https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api',
                True, 'New Order has no TP/SL — SL as a separate algo order after entry')
 
+# Moving a TP/SL (modify_tp_sl, make-before-break): the docs have no amend of a conditional order (Modify Order —
+# «currently only LIMIT order modification is supported»). The SDK places TP/SL with ``quantity`` (one-way —
+# reduceOnly, hedge — positionSide): such orders coexist (demo 2026-11-04 DOGE: two STOP_MARKET on the whole position
+# accepted, tests/ground_truth/binance/demo_two_sl.json) — the new one is placed first, then the previous one removed.
+# ``closePosition=true`` — one per side: the second is rejected with -4130 «An open stop or take profit order with GTE
+# and closePosition in the direction is existing» (the same demo) — such an SL is moved by a cancel and a new placement
+# (a window without a stop — the time of one request), see protection.modify_tp_sl.
+MODIFY_IN_PLACE = None
+TWO_SL = (True, 'https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Algo-Order',
+          True, 'orders with quantity coexist; closePosition — one per side (-4130, demo 2026-11-04)')
+
 
 # algoStatus (Algo Order API): the docs don't list the values (algoUpdate schema: «X — Algo Status»,
 # examples NEW / CANCELED); the others are seen in exchange responses.

@@ -377,7 +377,9 @@ def order(o: dict, market: Optional[Market], fallback: Optional[dict] = None) ->
         size=_mul(o.get('amount') if o.get('amount') is not None else fb.get('amount'), cs),
         filled=_mul(filled, cs),
         remaining=_mul(o.get('remaining'), cs),
-        reduce_only=o.get('reduceOnly'), post_only=o.get('postOnly'),
+        # a response to our reduce-only request without the field (OKX Place order — only ordId/sCode, ccxt sets False;
+        # Bybit — None): the request flag — the exchange would not have accepted a non reduce-only order (demo 2026-11-04)
+        reduce_only=True if fb.get('reduce_only') else o.get('reduceOnly'), post_only=o.get('postOnly'),
         time_in_force=o.get('timeInForce'), trigger_price=_f(o.get('triggerPrice')),
         fee=fee_cost, fee_currency=fee_currency,
         timestamp=o.get('timestamp') or fb.get('submitted_at'), raw=o,

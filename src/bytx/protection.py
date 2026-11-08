@@ -17,11 +17,17 @@ attached to the entry order). Per-exchange mechanics
   ``clientAlgoId``) — since 2025-12-09 conditional orders are accepted only there;
   the transport adds the ``clientAlgoId`` broker prefix (``exchanges.binance.broker_cid``);
 - Bybit: position TP/SL (``/v5/position/trading-stop``), one request per leg;
-- OKX: algo ``conditional``, TP and SL in one request, ``tag`` with our broker code;
+- OKX: algo ``conditional`` (one leg), TP and SL in one request — ``oco``, ``tag`` with our broker code;
 - BingX: ``TAKE_PROFIT_MARKET`` / ``STOP_MARKET`` via create_order with ``stopPrice``, without
   ``clientOrderID`` (Place order: «clientOrderId only supports LIMIT/MARKET order type»);
 - Hyperliquid: two reduce-only trigger orders (tpsl), market execution;
 - KuCoin Futures: stop orders (``takeProfitPrice`` / ``stopLossPrice``, reduce-only).
+
+Moving a TP/SL (:func:`modify_tp_sl`) — without a window without a stop where the exchange allows it (per the docs,
+``exchanges/<exchange>/tp_sl.py`` ``MODIFY_IN_PLACE`` / ``TWO_SL``): an in-place amend (OKX amend-algos,
+Bybit trading-stop Full, Bitget modify-tpsl-order), otherwise make-before-break — the new one is placed first,
+the previous one is removed after; cancel-first — only where two TP/SL per position are not allowed (Binance
+``closePosition``) or this is not verified (Gate, MEXC, HTX).
 """
 from __future__ import annotations
 
@@ -31,7 +37,7 @@ import math
 import re
 import time
 from collections import deque
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 import ccxt
@@ -52,7 +58,7 @@ from bytx.errors import (
     RequestTimeout,
     TimestampError,
 )
-from bytx.exchanges import tp_sl_fill_order_id, tp_sl_state, tp_sl_trigger_by
+from bytx.exchanges import tp_sl_fill_order_ids, tp_sl_modify, tp_sl_state, tp_sl_trigger_by
 from bytx.markets import to_market
 from bytx.order_params import check_client_id, client_id_params, generate_client_id, okx_tag_params
 from bytx.types import Market, Order, OrderStatus, Position, PositionSide
@@ -86,9 +92,12 @@ class TpSlOrder(Order):
     rejected); None — not reported by the exchange. ``status`` remains the SDK order status.
 
     ``fill_order_id`` — id of the order the exchange used to fill a triggered TP/SL, when it is a DIFFERENT order
-    (Binance actualOrderId, OKX ordIdList, Gate trade_id, MEXC placeOrderId, HTX relation_order_id):
-    closing trades go under it, not under ``id``. None — not triggered, filled under the same id (Bybit,
-    KuCoin, Hyperliquid) or the link is kept by the child order (BingX triggerOrderId).
+    (Binance actualOrderId, OKX ordIdList, Gate trade_id, MEXC placeOrderId, HTX relation_order_id;
+    BingX — in :meth:`Exchange.tp_sl_order`: a request by the conditional order's id returns the fill order with
+    ``triggerOrderId``): closing trades go under it, not under ``id``. None — not triggered, filled under the same
+    id (Bybit, KuCoin, Hyperliquid) or the link is kept only by the child order (BingX in lists and WS).
+    ``fill_order_ids`` — all such orders (OKX ``ordIdList``: when a TP/SL fill is split there are several —
+    Get algo order details), ``fill_order_id`` — the first of them; empty — like None above.
     """
 
     kind: str = 'take_profit'
@@ -98,6 +107,7 @@ class TpSlOrder(Order):
     has_client_id: bool = True
     state: Optional[str] = None
     fill_order_id: Optional[str] = None
+    fill_order_ids: tuple[str, ...] = ()
 
 
 _ORDER_FIELDS = tuple(f.name for f in fields(Order))
@@ -112,7 +122,8 @@ def _wrap(order: Order, kind: str, position_side: Optional[str],
 
 def _with_state(order: TpSlOrder, exchange_id: str, info: Any) -> TpSlOrder:
     order.state = tp_sl_state(exchange_id, info, order.status)
-    order.fill_order_id = tp_sl_fill_order_id(exchange_id, info)
+    order.fill_order_ids = tp_sl_fill_order_ids(exchange_id, info)
+    order.fill_order_id = order.fill_order_ids[0] if order.fill_order_ids else None
     return order
 
 
@@ -664,13 +675,22 @@ def _minimal(ctx: _Ctx, kind: str, trigger: Optional[float], *, id: str = '',
     )
 
 
-# ─── OKX: algo conditional ──────────────────────────────────────────────────
+# ─── OKX: algo conditional / oco ────────────────────────────────────────────
+
+#: algo order types of TP/SL in the list request (Get algo order list: «conditional and oco both can be used and
+#: separated with comma») — a TP+SL pair (our own and one attached to the entry via attachAlgoOrds) lives as oco
+OKX_TP_SL_ORD_TYPES = 'conditional,oco'
+
 
 async def _set_okx(ctx: _Ctx, take_profit: Optional[float],
                    stop_loss: Optional[float]) -> list[TpSlOrder]:
-    # TP and SL together — in ONE algo request (OKX keeps them as one pair). With caller
-    # client_ids — as separate algo orders: a pair has one algoClOrdId, while the bot's TP and SL
-    # live separately (each with its own id) and are canceled one by one
+    # TP and SL together — in ONE algo request ordType=oco (OKX keeps them as one pair). Not conditional:
+    # Place algo order — «When placing net TP/SL order (ordType=conditional) and both take-profit and
+    # stop-loss parameters are sent, only stop-loss logic will be performed and take-profit logic will be
+    # ignored» (demo 2026-11-04: the TP of a conditional pair did not fire, the oco one did;
+    # tests/ground_truth/okx/demo_tp_sl_pair_conditional_vs_oco.json). With caller client_ids — as separate
+    # conditional algo orders: a pair has one algoClOrdId, while the bot's TP and SL live separately
+    # (each with its own id) and are canceled one by one
     both = take_profit is not None and stop_loss is not None
     if both and set(ctx.explicit) <= {'tp_sl'}:
         legs = [(take_profit, stop_loss)]
@@ -682,7 +702,7 @@ async def _set_okx(ctx: _Ctx, take_profit: Optional[float],
         req: dict = {
             'instId': ctx.market.id,
             'tdMode': 'isolated' if ctx.margin_mode == 'isolated' else 'cross',
-            'ordType': 'conditional',
+            'ordType': 'oco' if tp is not None and sl is not None else 'conditional',
             'side': ctx.close_side,
             'posSide': ctx.position_side if ctx.hedge else 'net',
             'sz': ctx.amount(),
@@ -1088,26 +1108,19 @@ async def _list_bybit(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
     visible. Rows are parsed by ccxt parse_order and wrapped by _wrap_listed."""
     from bytx.exchanges.bybit import orders as bybit_orders
     market = ex._ex.market(s)
+    rows = await bybit_orders.open_rows(lambda req: ex._call(ex._ex.private_get_v5_order_realtime, req), market)
     result: list[TpSlOrder] = []
-    seen: set[str] = set()
-    cursor: Optional[str] = None
-    for _ in range(bybit_orders.OPEN_MAX_PAGES):
-        resp = await ex._call(ex._ex.private_get_v5_order_realtime, bybit_orders.open_request(market, cursor))
-        rows, cursor = bybit_orders.open_page(resp)
-        new = [r for r in rows if str(r.get('orderId')) not in seen]
-        seen.update(str(r.get('orderId')) for r in new)
-        for r in new:
-            wrapped = _wrap_listed(ex._ex.id, ex._ex.parse_order(r, market), m)
-            if wrapped is not None:
-                result.append(wrapped)
-        if not cursor or not new:
-            break
+    for r in rows:
+        wrapped = _wrap_listed(ex._ex.id, ex._ex.parse_order(r, market), m)
+        if wrapped is not None:
+            result.append(wrapped)
     return result
 
 
 async def _list_binance(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
-    # conditional TP/SL live in the Algo Order service (GET /fapi/v1/openAlgoOrders)
-    raw = await ex._call(ex._ex.request, 'openAlgoOrders', 'fapiPrivate', 'GET', {})
+    # conditional TP/SL live in the Algo Order service (GET /fapi/v1/openAlgoOrders); per symbol — with symbol: docs
+    # «Current All Algo Open Orders» — weight 1, without symbol — 40; the row filter by symbol below is a safeguard
+    raw = await ex._call(ex._ex.request, 'openAlgoOrders', 'fapiPrivate', 'GET', {'symbol': m.id})
     rows = raw if isinstance(raw, list) else (raw.get('orders') or []) if isinstance(raw, dict) else []
     result = []
     for d in rows:
@@ -1121,7 +1134,7 @@ async def _list_binance(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
 
 async def _list_okx(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
     resp = await ex._call(ex._ex.private_get_trade_orders_algo_pending,
-                          {'ordType': 'conditional', 'instId': m.id})
+                          {'ordType': OKX_TP_SL_ORD_TYPES, 'instId': m.id})
     result = []
     for d in (resp.get('data') or []) if isinstance(resp, dict) else []:
         parsed = ex._ex.parse_order(d, m.raw)
@@ -1161,17 +1174,47 @@ def _bitget_plan_order(d: dict, s: str, m: Market) -> Optional[TpSlOrder]:
         trigger_price=trigger, fee=None, fee_currency=None, timestamp=int(convert._f(d.get('cTime')) or 0) or None, raw=d,
         contracts=size, kind=kind, position_side=pos or None,
         take_profit=trigger if kind == 'take_profit' else None, stop_loss=trigger if kind == 'stop_loss' else None)
-    return _with_state(order, 'bitget', d)
+    _with_state(order, 'bitget', d)
+    # history (orders-plan-history): the order status follows planStatus (executed → closed, cancelled / fail_execute →
+    # canceled), not the «open» of the pending list: otherwise recover() picked up a removed / fired leg as alive
+    order.status = {'triggered': 'closed', 'canceled': 'canceled'}.get(order.state or '', 'open')  # type: ignore[assignment]
+    return order
+
+
+_BITGET_PLAN_PAGE = 100          # Get Pending Trigger Order: limit «Default: 100, maximum: 100»
+_BITGET_PLAN_PAGES = 50          # page limit (5000 plan orders per symbol) — a guard against a looping cursor
 
 
 async def _list_bitget(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
     # GET /api/v2/mix/order/orders-plan-pending, planType=profit_loss — «take profit and stop loss orders
-    # (including the profit_plan, loss_plan, moving_plan, pos_profit and pos_loss)»
-    resp = await ex._call(ex._ex.privateMixGetV2MixOrderOrdersPlanPending,
-                          {'symbol': m.id, 'productType': _bitget_product(m), 'planType': 'profit_loss'})
+    # (including the profit_plan, loss_plan, moving_plan, pos_profit and pos_loss)»; pages — idLessThan = endId
+    # («Requests the content on the page before this ID … should be the endId of the corresponding interface»)
+    out: list[TpSlOrder] = []
+    cursor: Optional[str] = None
+    for _ in range(_BITGET_PLAN_PAGES):
+        req = {'symbol': m.id, 'productType': _bitget_product(m), 'planType': 'profit_loss',
+               'limit': str(_BITGET_PLAN_PAGE)}
+        if cursor:
+            req['idLessThan'] = cursor
+        resp = await ex._call(ex._ex.privateMixGetV2MixOrderOrdersPlanPending, req)
+        data = resp.get('data') if isinstance(resp, dict) else None
+        rows = (data or {}).get('entrustedList') or [] if isinstance(data, dict) else []
+        out += [o for o in (_bitget_plan_order(d, s, m) for d in rows) if o is not None]
+        nxt = str((data or {}).get('endId') or '') if isinstance(data, dict) else ''
+        if len(rows) < _BITGET_PLAN_PAGE or not nxt or nxt == cursor:
+            break
+        cursor = nxt
+    return out
+
+
+async def _find_bitget_history(ex: 'Exchange', s: str, m: Market, oid: str) -> Optional[TpSlOrder]:
+    # GET /api/v2/mix/order/orders-plan-history: planType, productType are required; orderId — «Either orderId or
+    # clientOid is required»; planStatus executed / fail_execute / cancelled, executeOrderId
+    resp = await ex._call(ex._ex.privateMixGetV2MixOrderOrdersPlanHistory,
+                          {'symbol': m.id, 'productType': _bitget_product(m), 'planType': 'profit_loss', 'orderId': oid})
     data = resp.get('data') if isinstance(resp, dict) else None
     rows = (data or {}).get('entrustedList') or [] if isinstance(data, dict) else []
-    return [o for o in (_bitget_plan_order(d, s, m) for d in rows) if o is not None]
+    return next((o for o in (_bitget_plan_order(d, s, m) for d in rows) if o is not None and o.id == oid), None)
 
 
 def _gate_price_order(d: dict, s: str, m: Market) -> Optional[TpSlOrder]:
@@ -1236,7 +1279,9 @@ def _mexc_stop_orders(ex: 'Exchange', d: dict, s: str, m: Market) -> list[TpSlOr
     if pos is None:
         return []
     status = _MEXC_STOP_STATUS.get(str(tp_sl_state('mexc', d, 'open')), 'open')
-    size = convert._f(d.get('vol'))
+    # volType «Quantity type 1: partial TP/SL 2: position TP/SL» (Place TP/SL Order by Position): for a position TP/SL vol
+    # is the position size at placement, the order itself covers the whole position: size None (a move — volType 2 again)
+    size = None if str(d.get('volType') or '') == '2' else convert._f(d.get('vol'))
     out = []
     for kind, field_ in (('stop_loss', 'stopLossPrice'), ('take_profit', 'takeProfitPrice')):
         trigger = convert._f(d.get(field_))
@@ -1355,7 +1400,7 @@ _LISTERS = {
 
 async def conditional_symbols(ex: 'Exchange', symbol: Optional[str] = None) -> set[str]:
     """Symbols where TP/SL live outside the open orders list (Binance Algo, OKX algo
-    conditional, KuCoin stop) and must be canceled separately. Other exchanges — empty.
+    conditional / oco, KuCoin stop) and must be canceled separately. Other exchanges — empty.
 
     Without ``symbol`` — all symbols with such orders (one exchange request).
     """
@@ -1395,7 +1440,7 @@ async def conditional_symbols(ex: 'Exchange', symbol: Optional[str] = None) -> s
             rows = (data or {}).get('entrustedList') or [] if isinstance(data, dict) else []
             ids |= {str(d.get('symbol') or '').upper() for d in rows if isinstance(d, dict)}
     else:
-        resp = await ex._call(c.private_get_trade_orders_algo_pending, {'ordType': 'conditional'})
+        resp = await ex._call(c.private_get_trade_orders_algo_pending, {'ordType': OKX_TP_SL_ORD_TYPES})
         data = (resp.get('data') or []) if isinstance(resp, dict) else []
         ids = {d.get('instId') for d in data if isinstance(d, dict)}
     result = set()
@@ -1433,6 +1478,14 @@ async def tp_sl_order(ex: 'Exchange', symbol: str, order_id: str) -> TpSlOrder:
     ``GET /api/v5/trade/order-algo`` by algoId; Gate — ``GET /futures/{settle}/price_orders/{order_id}``; others — a regular order lookup
     (:meth:`Exchange.order`: KuCoin returns stop orders by id too, Bybit — realtime → history).
     No such order or it is not a TP/SL — :class:`OrderNotFound`.
+
+    A triggered TP/SL (``state`` 'triggered'): ``fill_order_ids`` / ``fill_order_id`` — the orders the exchange filled
+    it with, if these are DIFFERENT orders (closing trades go under them): OKX ``ordIdList`` (demo 2026-11-04: present as
+    soon as the position is closed; it was also seen returning 51603 minutes after the trigger — :class:`OrderNotFound`,
+    ask later), Binance ``actualOrderId``, BingX — the ``orderId`` of the fill order (Query Order details by the
+    conditional order's id returns it, ``triggerOrderId``), Gate ``trade_id``, MEXC ``placeOrderId``, HTX
+    ``relation_order_id``. Bybit (trading-stop, demo 2026-11-04), KuCoin, Hyperliquid fill under the TP/SL's own id —
+    empty. Bitget — open plan orders only: a triggered one — :class:`OrderNotFound`.
     """
     await ex.connect()
     if ex.market_type == 'spot':
@@ -1475,10 +1528,15 @@ async def tp_sl_order(ex: 'Exchange', symbol: str, order_id: str) -> TpSlOrder:
         if found is None:
             raise OrderNotFound(f'TP/SL {oid} ({s}) not found among open orders or in TP/SL history', exchange=ex.name)
     elif ex._ex.id == 'bitget':
-        # position TP/SL (place-tpsl-order) are plan orders: a regular order detail does not know them (40109)
+        # position TP/SL (place-tpsl-order) are plan orders: a regular order detail does not know them (40109);
+        # a fired / removed one is no longer pending — Get History Trigger Order by orderId (demo 2026-11-04: without
+        # it bracket did not recognize the fired leg)
         found = next((o for o in await _list_bitget(ex, s, m) if str(o.id) == oid), None)
         if found is None:
-            raise OrderNotFound(f'TP/SL {oid} ({s}) not found among open plan orders', exchange=ex.name)
+            found = await _find_bitget_history(ex, s, m, oid)
+        if found is None:
+            raise OrderNotFound(f'TP/SL {oid} ({s}) not found among pending or historical plan orders',
+                                exchange=ex.name)
     if found is None:
         order = await ex.order(s, oid)
         raw = order.raw if isinstance(order.raw, dict) else {}
@@ -1491,6 +1549,12 @@ async def tp_sl_order(ex: 'Exchange', symbol: str, order_id: str) -> TpSlOrder:
             found = _wrap_listed(ex._ex.id, raw, m)
         if found is None:
             raise OrderNotFound(f'order {oid} ({s}) is not a TP/SL', exchange=ex.name)
+        if found.id != oid and str(info.get('triggerOrderId') or '') == oid:
+            # BingX Query Order details by the id of a triggered conditional order returns the fill order
+            # (its own orderId, triggerOrderId = the requested one; demo 2026-11-04): the TP/SL keeps the requested
+            # id, the fill order goes to fill_order_id
+            found.fill_order_id, found.fill_order_ids = found.id, (str(found.id),)
+            found.id = oid
     return found
 
 
@@ -1553,6 +1617,61 @@ def _okx_cancel_algos_items(ex: 'Exchange', chunk: list[str], response: Any,
     return out
 
 
+async def _bitget_cancel_plan(ex: 'Exchange', s: str, m: Market, o: TpSlOrder) -> Any:
+    """Bitget cancel-plan-order of one TP/SL: removed — only if it is in ``data.successList`` (docs «Cancel Trigger
+    Order»).
+
+    Demo 2026-11-04 (tests/ground_truth/bitget/demo_cancel_lists.json): code 00000 also comes when the order is NOT
+    removed — a removed / fired / non-existent plan order and a live one with a different planType give empty
+    successList and failureList (the live one stays). Hence: a failureList entry — a rejection by its errorCode /
+    errorMsg («already gone» — OrderNotFound); not in the lists — the order is re-read: history confirmed cancelled /
+    executed — OrderNotFound; alive with another planType — a retry with the order's planType; alive with the same
+    planType or found nowhere (the index lagged) — ExchangeError «cancel not confirmed»."""
+    from bytx.exchanges.bitget import error_codes as bitget_codes
+    c = ex._ex
+    plan = str((o.raw or {}).get('planType') or ('pos_loss' if o.kind == 'stop_loss' else 'pos_profit'))
+    tried: list[str] = []
+    while True:
+        tried.append(plan)
+        resp = await ex._call(c.privateMixPostV2MixOrderCancelPlanOrder, {
+            'symbol': m.id, 'productType': _bitget_product(m), 'planType': plan,
+            'marginCoin': str((m.raw or {}).get('settle') or 'USDT').upper(), 'orderIdList': [{'orderId': o.id}]})
+        data = resp.get('data') if isinstance(resp, dict) else None
+        data = data if isinstance(data, dict) else {}
+        if any(str((r or {}).get('orderId')) == o.id for r in data.get('successList') or []):
+            return resp
+        failed = next((r for r in data.get('failureList') or [] if str((r or {}).get('orderId')) == o.id), None)
+        if failed is not None:
+            code = str(failed.get('errorCode') or '') or None
+            text = f'bitget cancel-plan-order {o.id}: {failed.get("errorMsg") or code or "failureList"}'
+            if code in bitget_codes.ORDER_NOT_OPEN:
+                raise OrderNotFound(text, exchange=ex.name, code=code)
+            if code is not None:
+                raise outcome.refine(c.id, ExchangeError(text, exchange=ex.name, code=code))
+        try:
+            now: Optional[TpSlOrder] = await tp_sl_order(ex, s, o.id)
+        except OrderNotFound:
+            now = None
+        except BytxError as e:
+            raise ExchangeError(f'bitget cancel-plan-order {o.id}: cancel not confirmed (not in successList), '
+                                f'state not read: {e}', exchange=ex.name) from e
+        if now is None:
+            # neither pending nor in history (the index lagged, page > 100) — «already removed» is not confirmed: an
+            # error, not OrderNotFound (otherwise a live leg would be taken as removed)
+            raise ExchangeError(f'bitget cancel-plan-order {o.id}: cancel not confirmed — the order is in neither '
+                                f'successList, pending nor history', exchange=ex.name, details={'order_id': o.id})
+        if now.state in ('canceled', 'triggered'):
+            raise OrderNotFound(f'bitget cancel-plan-order {o.id}: the order is already gone ({now.state}, history)',
+                                exchange=ex.name)
+        actual = str((now.raw or {}).get('planType') or '')
+        if actual and actual not in tried:
+            plan = actual                     # alive, another planType — retry with the order's planType
+            continue
+        raise ExchangeError(f'bitget cancel-plan-order {o.id}: cancel not confirmed — the order is alive '
+                            f'(planType {actual or plan}, successList / failureList are empty)', exchange=ex.name,
+                            details={'order_id': o.id, 'plan_types': tried})
+
+
 async def _htx_cancel_one(ex: 'Exchange', fn: Any, contract: str, order_id: str) -> Any:
     """HTX tpsl_cancel: a per-order reject goes to data.errors (1061 "This order doesnt exist") with status ok."""
     resp = await ex._call(fn, {'contract_code': contract, 'order_id': order_id})
@@ -1597,11 +1716,7 @@ async def cancel_tp_sl_each(ex: 'Exchange', s: str, orders: list[TpSlOrder]) -> 
                             {'settle': str((m.raw or {}).get('settleId') or 'usdt').lower(), 'order_id': o.id})
     elif c.id == 'bitget':
         def cancel(o: TpSlOrder):  # cancel-plan-order: orderIdList «aligned with symbol/productType/planType»
-            plan = str((o.raw or {}).get('planType') or ('pos_loss' if o.kind == 'stop_loss' else 'pos_profit'))
-            return ex._call(c.privateMixPostV2MixOrderCancelPlanOrder, {
-                'symbol': m.id, 'productType': _bitget_product(m), 'planType': plan,
-                'marginCoin': str((m.raw or {}).get('settle') or 'USDT').upper(),
-                'orderIdList': [{'orderId': o.id}]})
+            return _bitget_cancel_plan(ex, s, m, o)
     elif c.id == 'mexc':
         def cancel(o: TpSlOrder):  # POST stoporder/cancel: [{"stopPlanOrderId": …}]
             return ex._call(c.contractPrivatePostStoporderCancel, [{'stopPlanOrderId': o.id}])
@@ -1626,13 +1741,23 @@ async def cancel_tp_sl_each(ex: 'Exchange', s: str, orders: list[TpSlOrder]) -> 
 class TpSlModifyResult:
     """Result of :meth:`Exchange.modify_tp_sl` — what happened to the old and the new order.
 
-    ``old``: 'canceled' — the old trigger is gone (removed or replaced in place); 'alive' —
-    the old order is still in place; 'triggered' — it fired in time (the new one was not placed); 'unknown' —
-    the cancel is not confirmed and the state could not be read.
-    ``new``: 'created' — the new one is in place (``order``); 'unknown' — the placement outcome is unknown
-    (timeout, disconnect: look it up by ``client_ids``); 'rejected' — the exchange explicitly refused (the old one is already removed!);
-    None — the new one was not placed. ``atomic`` — modified in a single exchange request (Bybit trading-stop).
-    ``error`` — the exception of the step that failed.
+    ``strategy`` — how it was moved (per the exchange docs, :func:`bytx.exchanges.tp_sl_modify`):
+    'in_place' — the trigger amended in place in one request (OKX amend-algos, Bybit trading-stop Full,
+    Bitget modify-tpsl-order), ``atomic``; 'make_before_break' — the new one is placed first, the previous one is
+    removed after (no window without a stop); 'cancel_first' — the exchange doesn't keep two TP/SL per position
+    (Binance closePosition) or this is not verified (Gate, MEXC, HTX): cancel, then the new one — a window without a
+    stop for the duration of a request.
+
+    ``old``: 'canceled' — the old trigger is gone (removed or replaced in place); 'alive' — the old one is
+    still in place: the new one was rejected or its outcome is unknown, or (with ``new='created'``) the previous one
+    could not be removed — then BOTH are on the exchange (``both_alive``), the caller decides; 'triggered' — it
+    fired in time; 'unknown' — the cancel is not confirmed and the state could not be read.
+    ``new``: 'created' — the new one is in place (``order``; for an in-place amend — the same id); 'unknown' — the
+    placement outcome is unknown (timeout, disconnect: look it up by ``client_ids``); 'rejected' — the exchange
+    explicitly refused (make-before-break — the previous one stays; cancel_first — the previous one is already
+    removed, ``restored`` — its trigger placed again, if that succeeded); None — the new one was not placed (the
+    in-place amend was not applied — the previous one stays, ``old='alive'``, or it is already gone: ``old='triggered'`` /
+    ``'canceled'``). ``error`` — the exception of the step that failed.
     """
 
     old: str
@@ -1642,16 +1767,35 @@ class TpSlModifyResult:
     atomic: bool = False
     error: Optional[BytxError] = None
     client_ids: list = field(default_factory=list)
+    strategy: Optional[str] = None
+    restored: Optional[TpSlOrder] = None
 
     @property
     def ok(self) -> bool:
         return self.new == 'created'
 
+    @property
+    def both_alive(self) -> bool:
+        """The new one is placed, the previous one could not be removed — both are on the exchange (make-before-break)."""
+        return self.new == 'created' and self.old == 'alive'
+
+
+# set_tp_sl without a size places a «whole position» TP/SL (the mode is kept on a move): Bitget pos_loss / pos_profit,
+# Gate close-<side>-position (size 0), MEXC volType 2, Bybit tpslMode Full; Binance closePosition — its own path
+_WHOLE_POSITION_TP_SL = frozenset({'bitget', 'gate', 'mexc', 'bybit'})
+
+IN_PLACE = 'in_place'
+MAKE_BEFORE_BREAK = 'make_before_break'
+CANCEL_FIRST = 'cancel_first'
 
 # Bybit: "full position" TP/SL (tpslMode=Full) are modified in place via the same /v5/position/trading-stop
 # (docs: "Full position TP/SL orders: This API can be used to modify the parameters of existing
-# TP/SL orders"). Partial — cancel and place anew
+# TP/SL orders"; demo 2026-11-04: the orderId is the same). Partial — «can only add»: make-before-break
 _BYBIT_FULL_STOP_TYPES = ('TakeProfit', 'StopLoss')
+# OKX amend-algos: «Support Stop order and Trigger order only» — SDK TP/SL live as conditional / oco
+_OKX_AMENDABLE = ('conditional', 'oco')
+_OKX_TRIGGER_TYPE_KEYS = {'take_profit': ('tpTriggerPxType',), 'stop_loss': ('slTriggerPxType',),
+                          'tp_sl': ('tpTriggerPxType', 'slTriggerPxType')}
 
 
 def _modify_prices(old: TpSlOrder, take_profit: Optional[float], stop_loss: Optional[float],
@@ -1668,14 +1812,71 @@ def _modify_prices(old: TpSlOrder, take_profit: Optional[float], stop_loss: Opti
     return take_profit, stop_loss
 
 
+def _info(order: TpSlOrder) -> dict:
+    """Exchange fields of the order: ``raw['info']`` (a ccxt order) or ``raw`` itself (the exchange response as is)."""
+    raw = order.raw if isinstance(order.raw, dict) else {}
+    info = raw.get('info')
+    return info if isinstance(info, dict) else raw
+
+
+def _binance_close_position(order: TpSlOrder) -> bool:
+    return str(_info(order).get('closePosition', '')).lower() == 'true'
+
+
+def modify_strategy(ex: 'Exchange', old: TpSlOrder, *, size: Optional[float] = None,
+                    contracts: Optional[float] = None, client_id: Optional[str] = None,
+                    trigger_by: Optional[str] = None) -> str:
+    """How :func:`modify_tp_sl` will move ``old``: 'in_place' | 'make_before_break' | 'cancel_first'.
+
+    An in-place amend — where the exchange docs provide it (``MODIFY_IN_PLACE``) and the request fits it: Bybit —
+    a Full order without a new size; OKX — an algo conditional / oco, the same client_id (algoClOrdId doesn't change)
+    and price type (51528); Bitget — pos_loss / pos_profit of the same size (with any client_id: one per side) and a plan
+    with a size with the same client_id. Otherwise make-before-break if two TP/SL with a size per position coexist (``TWO_SL``), except Binance closePosition without a new size (-4130: one per side) — then, as
+    on exchanges without verification, cancel and place anew.
+    """
+    cid = ex._ex.id
+    info = _info(old)
+    same_volume = size is None and contracts is None
+    same_cid = client_id is None or (old.client_id is not None and client_id == old.client_id)
+    in_place, two_sl = tp_sl_modify(cid)
+    if in_place is not None:
+        if cid == 'bybit' and same_volume and str(info.get('stopOrderType') or '') in _BYBIT_FULL_STOP_TYPES:
+            return IN_PLACE
+        if cid == 'okx' and same_cid and str(info.get('ordType') or '') in _OKX_AMENDABLE:
+            keys = _OKX_TRIGGER_TYPE_KEYS.get(old.kind, ())
+            if trigger_by is None or all(str(info.get(k) or 'last') == trigger_by for k in keys):
+                return IN_PLACE
+        if cid == 'bitget':
+            from bytx.exchanges.bitget.tp_sl import WHOLE_POSITION_PLANS
+            whole = str(info.get('planType') or '') in WHOLE_POSITION_PLANS
+            # pos_loss / pos_profit — one per side (a second one replaces the previous, demo 2026-11-04): the same size
+            # — in place only (a new client_id won't apply; cancel-first — a window without a stop); a new size —
+            # make-before-break with a new loss_plan / profit_plan. With a size: the same client_id — in place
+            if (whole and same_volume) or (same_cid and not whole):
+                return IN_PLACE
+    if cid == 'binance' and same_volume and _binance_close_position(old):
+        return CANCEL_FIRST
+    return MAKE_BEFORE_BREAK if two_sl[0] else CANCEL_FIRST
+
+
 async def modify_tp_sl(ex: 'Exchange', symbol: str, order_id: str, *, take_profit: Optional[float] = None,
                        stop_loss: Optional[float] = None, size: Optional[float] = None,
                        contracts: Optional[float] = None, client_id: Optional[str] = None,
                        trigger_by: Optional[TriggerBy] = None) -> TpSlModifyResult:
-    """Modifies TP/SL by exchange id. See :meth:`Exchange.modify_tp_sl`."""
+    """Modifies TP/SL by exchange id without a window without a stop where the exchange allows it.
+    See :meth:`Exchange.modify_tp_sl`."""
     if size is not None and contracts is not None:
         raise ConfigError(f'at most one of size / contracts is allowed ({symbol})', exchange=ex.name,
                           details={'symbol': symbol, 'size': size, 'contracts': contracts})
+    if trigger_by is not None and trigger_by not in _TRIGGER_BY:
+        raise ConfigError(f'trigger_by: {_TRIGGER_BY}, not {trigger_by!r} ({symbol})', exchange=ex.name,
+                          details={'symbol': symbol, 'trigger_by': trigger_by})
+    for what, value in (('size', size), ('contracts', contracts)):
+        if value is not None and not value > 0:
+            # before touching the previous one: a refusal after canceling it (cancel_first) would leave the position
+            # without a leg
+            raise ConfigError(f'{what} must be > 0, not {value} ({symbol})', exchange=ex.name,
+                              details={'symbol': symbol, what: value})
     old = await tp_sl_order(ex, symbol, order_id)
     s = ex.symbol(symbol)
     tp, sl = _modify_prices(old, take_profit, stop_loss, ex)
@@ -1685,28 +1886,38 @@ async def modify_tp_sl(ex: 'Exchange', symbol: str, order_id: str, *, take_profi
         raise ConfigError(f'order {old.id}: position side is undetermined', exchange=ex.name,
                           details={'order_id': old.id})
     position_side: str = old.position_side
-    info = old.raw.get('info') if isinstance(old.raw.get('info'), dict) else old.raw
-    if (ex._ex.id == 'bybit' and size is None and contracts is None
-            and str((info or {}).get('stopOrderType') or '') in _BYBIT_FULL_STOP_TYPES):
-        return await _modify_bybit_full(ex, s, old, tp, sl, trigger_by)
-    # cancel the old one; the new one is placed only when the old one is definitely gone
-    error = (await cancel_tp_sl_each(ex, s, [old]))[0]
-    if error is not None:
-        try:
-            now = await tp_sl_order(ex, s, old.id)
-        except BytxError:
-            now = None
-        state = now.state if now is not None else None
-        if state == 'triggered':
-            return TpSlModifyResult(old='triggered', new=None, previous=old)
-        if state != 'canceled':
-            err = error if isinstance(error, BytxError) else ExchangeError(str(error), exchange=ex.name)
-            return TpSlModifyResult(old='alive' if state == 'open' else 'unknown', new=None,
-                                    previous=old, error=err)
-    if size is None and contracts is None:
-        contracts = old.contracts
-        if contracts is None and old.size is not None:
-            contracts = convert.contracts_from_size(ex._ex, to_market(ex._ex.market(s), ex._ex.id), old.size)
+    _check_prices(position_side, tp, sl, ex.name)
+    strategy = modify_strategy(ex, old, size=size, contracts=contracts, client_id=client_id, trigger_by=trigger_by)
+    m = to_market(ex._ex.market(s), ex._ex.id)
+    if size is not None:
+        contracts = convert.contracts_from_size(ex._ex, m, size)
+    elif contracts is not None:
+        contracts = convert.contracts_to_precision(ex._ex, m, contracts)
+    if strategy == IN_PLACE:
+        if ex._ex.id == 'bybit':
+            return await _modify_bybit_full(ex, s, old, tp, sl, trigger_by)
+        if ex._ex.id == 'okx':
+            return await _modify_okx_amend(ex, s, m, old, tp, sl, contracts)
+        if client_id is not None and client_id != old.client_id:
+            logger.warning(f'{ex.name}: TP/SL {old.id} ({s}) for the whole position is moved in place — the new client_id '
+                           f'{client_id} is not applied (the order keeps {old.client_id}): the exchange holds no second '
+                           f'pos_loss / pos_profit per side, cancel-first would leave the position without a stop')
+        return await _modify_bitget(ex, s, m, old, tp, sl, contracts, trigger_by)
+    close_position = ex._ex.id == 'binance' and contracts is None and _binance_close_position(old)
+    if contracts is None and not close_position:
+        # the previous size; 0 / none — a whole-position TP/SL (Bitget pos_profit / pos_loss — size "0", demo
+        # 2026-11-04): the new one covers the whole position too, not contracts=0 → ConfigError after canceling the
+        # previous one (cancel_first: a position without a stop, restoring with the same size — also a refusal)
+        contracts = old.contracts or None
+        if contracts is None and old.size:
+            contracts = convert.contracts_from_size(ex._ex, m, old.size)
+        if contracts is None and ex._ex.id not in _WHOLE_POSITION_TP_SL:
+            # set_tp_sl of this exchange places reduce-only on the CURRENT size (HL, BingX, KuCoin, OKX, HTX): a
+            # whole-position stop (closePosition / positionTpsl / closeOrder — not placed by the SDK) would become a
+            # partial stop — refuse before any action, the previous one stays
+            raise ConfigError(f'TP/SL {old.id} ({s}) covers the whole position (size 0): the SDK does not place such '
+                              f'orders on {ex.name}, a move would give a stop for the current size; pass size / contracts',
+                              exchange=ex.name, details={'order_id': old.id})
     kwargs: dict = {}
     if old.kind == 'tp_sl':
         kwargs['pair_client_id'] = client_id
@@ -1714,16 +1925,121 @@ async def modify_tp_sl(ex: 'Exchange', symbol: str, order_id: str, *, take_profi
         kwargs['take_profit_client_id'] = client_id
     else:
         kwargs['stop_loss_client_id'] = client_id
+
+    async def place(tp_: Optional[float], sl_: Optional[float], ids: dict) -> list[TpSlOrder]:
+        if close_position:
+            return [await _place_binance_close_position(ex, s, m, old, tp_, sl_, trigger_by,
+                                                        ids.get('take_profit_client_id')
+                                                        or ids.get('stop_loss_client_id'))]
+        return await set_tp_sl(ex, s, take_profit=tp_, stop_loss=sl_, contracts=contracts, trigger_by=trigger_by,
+                               position_side=position_side, **ids)  # type: ignore[arg-type]
+
+    if strategy == MAKE_BEFORE_BREAK:
+        return await _modify_make_before_break(ex, s, old, tp, sl, place, kwargs)
+    return await _modify_cancel_first(ex, s, old, tp, sl, place, kwargs)
+
+
+def _verdict(ex: 'Exchange', error: BytxError) -> str:
+    return outcome.classify(ex._ex.id, error)
+
+
+def _client_ids_of(error: BytxError) -> list:
+    details = error.details if isinstance(error.details, dict) else {}
+    return list(details.get('client_ids') or [])
+
+
+async def _find_new_leg(ex: 'Exchange', s: str, old: TpSlOrder, tp: Optional[float], sl: Optional[float],
+                        client_ids: list) -> Optional[TpSlOrder]:
+    """The new TP/SL among the open ones (except ``old``) — by client_id or trigger price; one scan, an error — None."""
     try:
-        orders = await set_tp_sl(ex, s, take_profit=tp, stop_loss=sl, size=size, contracts=contracts,
-                                 trigger_by=trigger_by, position_side=position_side, **kwargs)  # type: ignore[arg-type]
+        listed = await tp_sl_orders(ex, s, old.position_side)  # type: ignore[arg-type]
+    except BytxError:
+        return None
+    kind = 'stop_loss' if old.kind == 'stop_loss' else 'take_profit'
+    trigger = sl if kind == 'stop_loss' else tp
+    others = [o for o in listed if o.id != old.id]
+    return find_leg(ex, others, kind, cast(str, old.position_side), trigger, client_ids=client_ids)
+
+
+async def _retire(ex: 'Exchange', s: str, old: TpSlOrder) -> tuple[str, Optional[BytxError]]:
+    """Remove the previous TP/SL → (the old state for TpSlModifyResult, error). A failed cancel — re-read by id:
+    'canceled' / 'triggered' / 'alive' (still there — the cancel did not go through) / 'unknown'."""
+    error = (await cancel_tp_sl_each(ex, s, [old]))[0]
+    if error is None:
+        return 'canceled', None
+    try:
+        now: Optional[TpSlOrder] = await tp_sl_order(ex, s, old.id)
+    except BytxError:
+        now = None
+    state = now.state if now is not None else None
+    if state in ('canceled', 'triggered'):
+        return state, None
+    err = error if isinstance(error, BytxError) else ExchangeError(str(error), exchange=ex.name)
+    return ('alive' if state == 'open' else 'unknown'), err
+
+
+async def _modify_make_before_break(ex: 'Exchange', s: str, old: TpSlOrder, tp: Optional[float],
+                                    sl: Optional[float], place: Any, ids: dict) -> TpSlModifyResult:
+    """The new TP/SL first; not placed — the previous one is left alone; placed — the previous one is removed.
+
+    The new one rejected — old 'alive', new 'rejected'; outcome unknown — old 'alive', new 'unknown' (look it up by
+    ``client_ids``; set_tp_sl already reconciled the open TP/SL). Any other exchange error / a duplicate client_id —
+    one scan of the open ones: the new one found — continue. A failed removal of the previous one — the new one is not
+    lost: old 'alive' (both stand) / 'unknown', ``error`` — the cancel error."""
+    try:
+        orders = await place(tp, sl, ids)
     except BytxError as e:
-        details = e.details if isinstance(e.details, dict) else {}
-        verdict = outcome.classify(ex._ex.id, e)
+        client_ids = _client_ids_of(e)
+        verdict = _verdict(ex, e)
+        found = None
+        if verdict in ('exchange_error', 'duplicate'):
+            found = await _find_new_leg(ex, s, old, tp, sl, client_ids or [v for v in ids.values() if v])
+        if found is None:
+            return TpSlModifyResult(old='alive', new='rejected' if verdict in ('rejected', 'exchange_error')
+                                    else 'unknown', previous=old, error=e, client_ids=client_ids,
+                                    strategy=MAKE_BEFORE_BREAK)
+        orders = [found]
+    if orders[0].id and orders[0].id == old.id:
+        # a response without an id (Bybit trading-stop) matched to the previous one by price: look for the new leg
+        # among the others; none — the exchange replaced the previous one in place, nothing to remove
+        found = await _find_new_leg(ex, s, old, tp, sl, [o.client_id for o in orders if o.client_id])
+        if found is None:
+            return TpSlModifyResult(old='canceled', new='created', order=orders[0], previous=old,
+                                    strategy=MAKE_BEFORE_BREAK)
+        orders = [found]
+    client_ids = [o.client_id for o in orders if o.client_id]
+    old_state, error = await _retire(ex, s, old)
+    if error is not None:
+        logger.warning(f'{ex.name}: new TP/SL {orders[0].id} is placed, the previous {old.id} could not be removed '
+                       f'({old_state}): {error}')
+    return TpSlModifyResult(old=old_state, new='created', order=orders[0], previous=old, error=error,
+                            client_ids=client_ids, strategy=MAKE_BEFORE_BREAK)
+
+
+async def _modify_cancel_first(ex: 'Exchange', s: str, old: TpSlOrder, tp: Optional[float],
+                               sl: Optional[float], place: Any, ids: dict) -> TpSlModifyResult:
+    """Cancel, then the new one (the exchange doesn't keep two TP/SL per position or this is not verified) — a window
+    without a stop for the duration of a request. The new one is placed only when the old one is definitely gone;
+    the new one rejected — the previous trigger is placed again (``restored``)."""
+    old_state, error = await _retire(ex, s, old)
+    if old_state != 'canceled':
+        return TpSlModifyResult(old=old_state, new=None, previous=old, error=error, strategy=CANCEL_FIRST)
+    try:
+        orders = await place(tp, sl, ids)
+    except BytxError as e:
+        verdict = _verdict(ex, e)
+        restored = None
+        if verdict == 'rejected':
+            try:
+                restored = (await place(old.take_profit, old.stop_loss, {}))[0]
+            except BytxError as e2:
+                logger.error(f'{ex.name}: the previous TP/SL {old.id} is removed, the new one was rejected, restoring '
+                             f'the previous one failed — position {s} is without this protection: {e2}')
         return TpSlModifyResult(old='canceled', new='rejected' if verdict == 'rejected' else 'unknown',
-                                previous=old, error=e, client_ids=list(details.get('client_ids') or []))
+                                previous=old, error=e, client_ids=_client_ids_of(e), strategy=CANCEL_FIRST,
+                                restored=restored)
     return TpSlModifyResult(old='canceled', new='created', order=orders[0], previous=old,
-                            client_ids=[o.client_id for o in orders if o.client_id])
+                            client_ids=[o.client_id for o in orders if o.client_id], strategy=CANCEL_FIRST)
 
 
 async def _modify_bybit_full(ex: 'Exchange', s: str, old: TpSlOrder, tp: Optional[float],
@@ -1740,9 +2056,144 @@ async def _modify_bybit_full(ex: 'Exchange', s: str, old: TpSlOrder, tp: Optiona
         orders = await _place(ctx, _set_bybit, tp, sl, strict=False)
     except BytxError as e:
         if outcome.classify('bybit', e, has_client_id=False) == 'rejected':
-            return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=e)
-        return TpSlModifyResult(old='unknown', new='unknown', previous=old, atomic=True, error=e)
-    return TpSlModifyResult(old='canceled', new='created', order=orders[0], previous=old, atomic=True)
+            return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=e, strategy=IN_PLACE)
+        return TpSlModifyResult(old='unknown', new='unknown', previous=old, atomic=True, error=e, strategy=IN_PLACE)
+    return TpSlModifyResult(old='canceled', new='created', order=orders[0], previous=old, atomic=True,
+                            strategy=IN_PLACE)
+
+
+async def _settle_in_place(ex: 'Exchange', s: str, old: TpSlOrder, tp: Optional[float], sl: Optional[float],
+                           error: BytxError) -> TpSlModifyResult:
+    """An in-place amend without a clear response: re-read the order — the new trigger is in place / the previous one
+    / unknown."""
+    try:
+        now: Optional[TpSlOrder] = await tp_sl_order(ex, s, old.id)
+    except BytxError:
+        now = None
+    if now is not None and now.state == 'open':
+        want = [(_trigger_of(now, k), p) for k, p in (('take_profit', tp), ('stop_loss', sl)) if p is not None]
+        if all(_near_price(ex, s, got, p) for got, p in want):
+            return TpSlModifyResult(old='canceled', new='created', order=now, previous=old, atomic=True,
+                                    strategy=IN_PLACE)
+        return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=error, strategy=IN_PLACE)
+    if now is not None and now.state == 'triggered':
+        return TpSlModifyResult(old='triggered', new=None, previous=old, atomic=True, error=error, strategy=IN_PLACE)
+    if now is not None and now.state == 'canceled':
+        # removed (history: Bitget cancelled / fail_execute): there is definitely no stop, the in-place amend did not
+        # bring it back
+        return TpSlModifyResult(old='canceled', new=None, previous=old, atomic=True, error=error, strategy=IN_PLACE)
+    return TpSlModifyResult(old='unknown', new='unknown', previous=old, atomic=True, error=error, strategy=IN_PLACE)
+
+
+async def _in_place_result(ex: 'Exchange', s: str, old: TpSlOrder, order_id: str, tp: Optional[float],
+                           sl: Optional[float]) -> TpSlModifyResult:
+    """The amend is accepted: the order is re-read by id (the amend is visible immediately — OKX demo 2026-11-04);
+    not read — the previous one with the new prices."""
+    try:
+        now: Optional[TpSlOrder] = await tp_sl_order(ex, s, order_id)
+    except BytxError:
+        now = None
+    if now is None:
+        now = replace(old, id=order_id, take_profit=tp if tp is not None else old.take_profit,
+                      stop_loss=sl if sl is not None else old.stop_loss,
+                      trigger_price=sl if old.kind == 'stop_loss' else tp if old.kind == 'take_profit'
+                      else old.trigger_price)
+    return TpSlModifyResult(old='canceled', new='created', order=now, previous=old, atomic=True, strategy=IN_PLACE,
+                            client_ids=[now.client_id] if now.client_id else [])
+
+
+async def _modify_okx_amend(ex: 'Exchange', s: str, m: Market, old: TpSlOrder, tp: Optional[float],
+                            sl: Optional[float], contracts: Optional[float]) -> TpSlModifyResult:
+    """OKX: POST /api/v5/trade/amend-algos — a new trigger (and ``newSz``) on the same algoId. The leg execution
+    price stays (-1 — market). A rejection (the item's sCode, ccxt raises on code '1') — the order is unchanged."""
+    c = ex._ex
+    info = _info(old)
+    req: dict = {'instId': m.id, 'algoId': old.id}
+    if contracts is not None:
+        req['newSz'] = c.amount_to_precision(s, contracts)
+    if tp is not None and old.kind in ('take_profit', 'tp_sl'):
+        req.update(newTpTriggerPx=c.price_to_precision(s, tp), newTpOrdPx=str(info.get('tpOrdPx') or '-1'))
+    if sl is not None and old.kind in ('stop_loss', 'tp_sl'):
+        req.update(newSlTriggerPx=c.price_to_precision(s, sl), newSlOrdPx=str(info.get('slOrdPx') or '-1'))
+    try:
+        resp = await ex._call(c.private_post_trade_amend_algos, req, safe=False)
+        item = (resp.get('data') or [{}])[0] if isinstance(resp, dict) else {}
+        if str(item.get('sCode', '0')) != '0':
+            raise InvalidOrder(f'okx amend-algos: sCode {item.get("sCode")} {item.get("sMsg") or ""}'.strip(),
+                               exchange=ex.name, code=str(item.get('sCode')))
+    except BytxError as e:
+        if _verdict(ex, e) == 'rejected':
+            return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=e, strategy=IN_PLACE)
+        return await _settle_in_place(ex, s, old, tp, sl, e)
+    return await _in_place_result(ex, s, old, str(item.get('algoId') or old.id), tp, sl)
+
+
+async def _modify_bitget(ex: 'Exchange', s: str, m: Market, old: TpSlOrder, tp: Optional[float],
+                         sl: Optional[float], contracts: Optional[float],
+                         trigger_by: Optional[TriggerBy]) -> TpSlModifyResult:
+    """Bitget: POST /api/v2/mix/order/modify-tpsl-order — the trigger (and the part size) of the same orderId; for
+    pos_profit / pos_loss ``size`` is "" (docs). Price type — the given one or the previous one (``triggerType``)."""
+    from bytx.exchanges.bitget.tp_sl import TRIGGER_TYPES
+    c = ex._ex
+    info = _info(old)
+    trigger = sl if old.kind == 'stop_loss' else tp
+    assert trigger is not None
+    plan = str(info.get('planType') or '')
+    whole = plan in ('pos_profit', 'pos_loss')
+    volume = contracts if contracts is not None else old.contracts
+    req: dict = {'orderId': old.id, 'symbol': m.id, 'productType': _bitget_product(m),
+                 'marginCoin': str((m.raw or {}).get('settle') or 'USDT').upper(),
+                 'triggerPrice': c.price_to_precision(s, trigger),
+                 'size': '' if whole or volume is None else c.amount_to_precision(s, volume)}
+    if trigger_by is not None:
+        req['triggerType'] = TRIGGER_TYPES[trigger_by]
+    elif info.get('triggerType'):
+        req['triggerType'] = info['triggerType']
+    try:
+        resp = await ex._call(c.privateMixPostV2MixOrderModifyTpslOrder, req, safe=False)
+    except BytxError as e:
+        if _verdict(ex, e) == 'rejected':
+            return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=e, strategy=IN_PLACE)
+        return await _settle_in_place(ex, s, old, tp, sl, e)
+    data = resp.get('data') if isinstance(resp, dict) else None
+    new_id = str((data or {}).get('orderId') or old.id) if isinstance(data, dict) else old.id
+    return await _in_place_result(ex, s, old, new_id, tp, sl)
+
+
+async def _place_binance_close_position(ex: 'Exchange', s: str, m: Market, old: TpSlOrder, tp: Optional[float],
+                                        sl: Optional[float], trigger_by: Optional[TriggerBy],
+                                        client_id: Optional[str]) -> TpSlOrder:
+    """Binance: a «close all» TP/SL (``closePosition=true``, no quantity) — like the previous one, with a new trigger.
+    New Algo Order: closePosition «cannot be used with quantity / reduceOnly»; in hedge — the previous positionSide."""
+    info = _info(old)
+    kind = old.kind
+    trigger = sl if kind == 'stop_loss' else tp
+    assert trigger is not None
+    hedge = await ex.is_hedge_mode(s)
+    by = trigger_by or {'MARK_PRICE': 'mark', 'CONTRACT_PRICE': 'last'}.get(str(info.get('workingType') or ''),
+                                                                           tp_sl_trigger_by('binance'))
+    ctx = _Ctx(ex, s, m, cast(str, old.position_side), 0.0, False, hedge, by,
+               (ex.margin_mode_of(s) or 'cross').lower())
+    order_type = 'STOP_MARKET' if kind == 'stop_loss' else 'TAKE_PROFIT_MARKET'
+    req: dict = {'algoType': 'CONDITIONAL', 'symbol': m.id, 'side': ctx.close_side.upper(), 'type': order_type,
+                 'triggerPrice': ctx.price(trigger), 'closePosition': 'true',
+                 'workingType': _BINANCE_WORKING_TYPE[by]}
+    if hedge:
+        req['positionSide'] = 'LONG' if ctx.position_side == 'long' else 'SHORT'
+    cid = client_id or ctx.client_id(kind)
+    if _BINANCE_ALGO_CID_RE.fullmatch(cid):
+        req['clientAlgoId'] = cid
+    await ctx.pre_submit(kind, req.get('clientAlgoId'), trigger, req)
+    resp = await ex._call(_binance_algo_create, ctx.c, req, safe=False)
+    merged = {**req, **(resp if isinstance(resp, dict) else {})}
+    merged.setdefault('orderType', order_type)
+    order = _binance_algo_order(merged, s, m)
+    if order is None:  # pragma: no cover — the order type from the request is always TP/SL
+        raise ExchangeError('binance algoOrder: response without an order', exchange=ex.name)
+    order.position_side = ctx.position_side
+    if order.id:
+        ex._binance_algo_ids.add(order.id)
+    return order
 
 
 async def cancel_tp_sl(ex: 'Exchange', symbol: str, *, side: Optional[PositionSide] = None,

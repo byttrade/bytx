@@ -47,41 +47,66 @@ def orders(hub: Any) -> FeedSpec:
         return [exchange._order(o) for o in _logical_cids(ex, raw)]
 
     return FeedSpec(kind='orders', key=('orders',), symbol=None, watch=watch, convert=conv,
-                    policy='queue', timestamp=_order_ts)
+                    policy='queue', timestamp=_order_ts, close=getattr(watch, 'close', None))
+
+
+class _MergedWatch:
+    """One ``watch()`` over several ccxt subscriptions (OKX orders + orders-algo).
+
+    One pump task per subscription: ``r = await make()`` right in the task, ``put_nowait`` into a shared queue and
+    ``make()`` again at once — no ensure_future / asyncio.wait / shield between a batch and the new wait (ccxt 4.4.65
+    with useMessageQueue=False wakes only an already created future, and a message arriving in the re-arm window sat in
+    the cache until the NEXT message of the channel — a limit order fill was delayed). A subscription error goes to the
+    queue and the pump ends (the error is retrieved — no «Future exception was never retrieved»); ``watch()`` restarts
+    dead pumps, returns a batch or raises the error. Consumer cancellation cancels only the queue wait — the shared ccxt
+    future is not touched. ``close()`` (FeedSpec.close, Feed stop) cancels the pumps. ``make()`` creates a new wait each
+    time (like ccxt ``watch_*``: a future on messageHash), so the pump yields to the loop inside ``make()`` between
+    batches.
+    """
+
+    def __init__(self, factories: tuple) -> None:
+        self.factories = factories
+        self.tasks: dict[int, Any] = {}
+        self.queue: Any = None
+
+    @property
+    def pumps(self) -> list:
+        return list(self.tasks.values())
+
+    async def _pump(self, make: Any) -> None:
+        import asyncio
+        while True:
+            try:
+                result = await make()
+            except asyncio.CancelledError:
+                raise
+            except BaseException as e:  # noqa: BLE001 — the exception goes to the consumer, as with a single subscription
+                self.queue.put_nowait((False, e))
+                return
+            self.queue.put_nowait((True, result))
+
+    async def __call__(self) -> Any:
+        import asyncio
+        if self.queue is None:
+            self.queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        for i, make in enumerate(self.factories):
+            task = self.tasks.get(i)
+            if task is None or task.done():
+                self.tasks[i] = loop.create_task(self._pump(make), name=f'bytx:merged-watch:{i}')
+        ok, value = await self.queue.get()
+        if not ok:
+            raise value
+        return value
+
+    def close(self) -> None:
+        for task in self.tasks.values():
+            task.cancel()
 
 
 def _merged_watch(*factories: Any) -> Any:
-    """One ``watch()`` over several ccxt subscriptions: returns the first batch that arrives.
-
-    Unclaimed waits stay until the next call. Each is under ``asyncio.shield``:
-    consumer cancellation (stream stop) does not cancel the shared ccxt future that
-    other subscribers of the same messageHash may be waiting on. The error of an abandoned wait (ccxt closed on
-    stop) is retrieved, otherwise asyncio logs "Future exception was never retrieved"
-    (demo e2e OKX 2026-10-30).
-    """
-    import asyncio
-    pending: dict[int, asyncio.Future] = {}
-
-    def retrieve(fut: asyncio.Future) -> None:
-        if not fut.cancelled():
-            fut.exception()
-
-    async def watch() -> Any:
-        for i, make in enumerate(factories):
-            if i not in pending:
-                pending[i] = asyncio.ensure_future(make())
-                pending[i].add_done_callback(retrieve)
-        shields = [asyncio.shield(f) for f in pending.values()]
-        for s in shields:
-            s.add_done_callback(retrieve)
-        done, _ = await asyncio.wait(shields, return_when=asyncio.FIRST_COMPLETED)
-        for i, fut in list(pending.items()):
-            if fut.done():
-                del pending[i]
-                return fut.result()      # exception — to the supervisor, as with a single subscription
-        raise RuntimeError('merged watch: no completed subscription')  # unreachable
-
-    return watch
+    """See :class:`_MergedWatch`."""
+    return _MergedWatch(factories)
 
 
 def fills(hub: Any) -> FeedSpec:
@@ -154,7 +179,15 @@ def balance(hub: Any) -> FeedSpec:
                 except BaseException:
                     pending.cancel()
                     raise
-            merged = _overlay_balance(base, await pending)
+            try:
+                update = await pending
+            except BaseException:
+                # disconnect / cancel: coins may have changed during the gap — the next watch takes a new snapshot
+                # under the subscription (the snapshot used to be taken once per FeedSpec and not refreshed after a
+                # reconnect)
+                base.clear()
+                raise
+            merged = _overlay_balance(base, update)
             base.clear()
             base.update(merged)
             return merged

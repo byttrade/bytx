@@ -23,6 +23,8 @@ from typing import Any, Optional
 WINDOW = 512  # last N samples per endpoint for percentiles
 
 _ENDPOINT: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('bytx_endpoint', default=None)
+#: request instrument (OKX ``instId``): OKX trading endpoints are limited per «User ID + Instrument ID»
+_INSTRUMENT: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('bytx_instrument', default=None)
 
 # Rate-limit header prefixes (lowercase).
 _RATE_LIMIT_HEADERS = (
@@ -221,10 +223,13 @@ def instrument(exchange: Any) -> Metrics:
 
     # The fetch2 signature depends on the ccxt version (4.5 dropped headers/body) — pass through as is.
     async def fetch2(path: Any, api: Any = 'public', method: str = 'GET', *args: Any, **kwargs: Any) -> Any:
+        params = args[0] if args else kwargs.get('params')
         token = _ENDPOINT.set(endpoint_label(api, method, path))
+        inst = _INSTRUMENT.set(params.get('instId') if isinstance(params, dict) else None)
         try:
             return await original_fetch2(path, api, method, *args, **kwargs)
         finally:
+            _INSTRUMENT.reset(inst)
             _ENDPOINT.reset(token)
 
     exchange.fetch2 = fetch2

@@ -52,7 +52,8 @@ class Pages:
 
 
 def add(result: IncomeResult, seen: set, key: Any, *, ts: Any, kind: IncomeKind, amount: Any,
-        currency: Any, since: int, until: int, symbol: Any = None, side: Optional[str] = None) -> bool:
+        currency: Any, since: int, until: int, symbol: Any = None, side: Optional[str] = None,
+        market: Optional[str] = None) -> bool:
     """Adds a record (duplicates by ``key`` and records outside the window are dropped); True — new record."""
     t = integer(ts)
     value = num(amount)
@@ -66,5 +67,5 @@ def add(result: IncomeResult, seen: set, key: Any, *, ts: Any, kind: IncomeKind,
         return True
     result.items.append(IncomeItem(ts=t, kind=kind, amount=value, currency=str(currency or '').upper(),
                                    symbol=str(symbol) if symbol not in (None, '') else None,
-                                   id=str(key) if key is not None else None, side=side))
+                                   id=str(key) if key is not None else None, side=side, market=market))
     return True

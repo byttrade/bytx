@@ -95,6 +95,26 @@ def is_ip_ban(error: BaseException) -> bool:
     return isinstance(error, ccxt.DDoSProtection) and bool(_HTTP_418.search(str(error)))
 
 
+def is_ban(error: BaseException) -> bool:
+    """An exchange ban — retrying is pointless until it ends: HTTP 418 (IP ban), Bybit HTTP 403 «access too
+    frequent» (IP ban), BingX 100410 («disabled period ... unblocked after»)."""
+    if is_ip_ban(error):
+        return True
+    if not isinstance(error, ccxt.RateLimitExceeded):
+        return False
+    text = str(error)
+    return 'access too frequent' in text.lower() or '100410' in text
+
+
+def _ban_left(fn: Any) -> Optional[float]:
+    """The rest of the ban the limiter set from a response (the instance's ``_bytx_ban_until``), s."""
+    import time
+    until = getattr(getattr(fn, '__self__', None), '_bytx_ban_until', None)
+    if not isinstance(until, (int, float)):
+        return None
+    return max(0.0, until - time.monotonic())
+
+
 def is_unsafe(fn: Any) -> bool:
     return getattr(fn, '__name__', '') in UNSAFE_METHODS
 
@@ -120,6 +140,9 @@ async def call_with_retry(fn: Callable[..., Awaitable[T]], args: tuple, kwargs: 
             raise
         except Exception as e:
             err = from_ccxt(e, exchange, secrets=ccxt_secrets(getattr(fn, '__self__', None)))
+            banned = is_ban(e)
+            if isinstance(err, RateLimited) and err.retry_after is None and banned:
+                err.retry_after = _ban_left(fn)       # rest of the ban (Bybit 403 — 600 s, BingX — until unblocked)
             if isinstance(err, RateLimited) and err.retry_after is None and metrics is not None:
                 # Retry-After from the response headers — to the caller, not only to the retry pause
                 err.retry_after = getattr(metrics, 'retry_after_hint', None)
@@ -137,7 +160,7 @@ async def call_with_retry(fn: Callable[..., Awaitable[T]], args: tuple, kwargs: 
                 if metrics is not None:
                     metrics.retries += 1
                 continue  # retry immediately, outside the retries budget
-            if not retryable_call or not err.retryable or attempt >= policy.retries or is_ip_ban(e):
+            if not retryable_call or not err.retryable or attempt >= policy.retries or banned:
                 raise err from e
             pause = policy.delay(attempt, err, getattr(metrics, 'retry_after_hint', None)
                                  if isinstance(err, RateLimited) else None)
@@ -152,4 +175,4 @@ async def call_with_retry(fn: Callable[..., Awaitable[T]], args: tuple, kwargs: 
             await asyncio.sleep(pause)
 
 
-__all__ = ['RetryPolicy', 'UNSAFE_METHODS', 'call_with_retry', 'is_ip_ban', 'is_unsafe']
+__all__ = ['RetryPolicy', 'UNSAFE_METHODS', 'call_with_retry', 'is_ban', 'is_ip_ban', 'is_unsafe']

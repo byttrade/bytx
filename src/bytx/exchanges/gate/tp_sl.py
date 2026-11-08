@@ -23,6 +23,12 @@ OCO = ('emulated', DOC, False, 'separate price_orders: TP/SL link not described 
 # (close-long-order / close-short-order) are read-only and cannot be passed in requests»
 ATTACHED_SL = (False, DOC, True, 'order TP/SL is read-only — SL as a separate price_order after entry')
 
+# Moving a TP/SL (modify_tp_sl): the available spec has no price_order amend (the official APIv4 page —
+# 403, the gateapi-python model has no update), two close-*-position coexisting is not described — a cancel and a new
+# placement (a window without a stop — the time of one request).
+MODIFY_IN_PLACE = None
+TWO_SL = (False, DOC, False, 'not described in the available docs — cancel, then the new one')
+
 # status «open: Active, finished, inactive, invalid»; finish_as «cancelled, succeeded, failed, expired»
 _FINISH = {'succeeded': 'triggered', 'cancelled': 'canceled', 'failed': 'canceled', 'expired': 'canceled'}
 

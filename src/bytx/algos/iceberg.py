@@ -5,6 +5,12 @@ until ``size`` is reached. ``visible_jitter`` (0…0.9): each slice size ×(1 ±
 repeating size does not give the iceberg away; ``seed`` for reproducibility (without it, replay derives from ``PaperConfig.seed``). Client-side emulation, without
 exchange-native icebergs (they have their own rules and not all exchanges have them): same on 6 exchanges and paper.
 
+A slice is not smaller than the exchange's minimum order (step, ``min_amount``, minimum notional ``min_cost`` at
+``price``; for reduce-only — without the notional): a smaller ``visible`` — the minimum allowed slice rests in the
+book; a tail below the minimum that would remain after a slice goes into that slice (``extra['visible_min']``).
+The whole ``size`` below the minimum or not divisible into slices smaller than itself — ``OrderTooSmall`` ('failed'):
+the iceberg never silently places the whole size.
+
 If the visible slice was canceled by someone else (manually, by the exchange: post-only, STP, liquidation), the algorithm ends
 (``reason='child_canceled'``): blindly re-placing over someone else's decision is unsafe. ``timeout``: seconds by
 the algorithm's clock, after which the working slice is canceled (``reason='timeout'``).
@@ -14,7 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from bytx.algos.base import algo_rng, EPS, TERMINAL_ORDER, ExecAlgo, check_positive
-from bytx.errors import ConfigError
+from bytx.errors import ConfigError, OrderTooSmall
 from bytx.types import Order, Side
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -56,9 +62,19 @@ class Iceberg(ExecAlgo):
 
     async def _run(self) -> None:
         self.target = self._round_size(self.size)
-        min_size = max(self._min_size(), EPS)
         side: Side = self.side  # type: ignore[assignment]
         price = self._round_price(self.price, side)
+        min_size = max(self._min_size(price, reduce_only=self.reduce_only), EPS)
+        self._check_target(min_size, reduce_only=self.reduce_only)
+        target = self.target or 0.0
+        first = self._tail_merged(min(max(self._round_size(self.visible), min_size), target), target, min_size)
+        if first >= target - EPS and self.visible < target - EPS:
+            # the exchange's minimum order doesn't allow splitting the size: the very first slice is the whole size
+            raise OrderTooSmall(f'iceberg: minimum order {min_size:g} at price {price:g} does not allow splitting '
+                                f'{target:g} into slices ≤ visible {self.visible:g} — the whole size would be in the '
+                                f'book', exchange=self.ex.name)
+        if min_size > self.visible + EPS:
+            self.extra['visible_min'] = min_size
         deadline = self.started_ms + int(self.timeout * 1000) if self.timeout else None
         self.extra.update(price=price, parts=0)
         while True:
@@ -75,20 +91,21 @@ class Iceberg(ExecAlgo):
                         return
             left = self._round_size(self.target - self.filled)
             if left < min_size:
+                self._below_min(left)
                 self._stop('filled')
                 return
             if deadline is not None and self.clock.now_ms() >= deadline + self.paused_ms:
                 if self.working is not None:
                     if await self._cancel_child(self.working) is None:
-                        await self._sleep(self.poll)
-                        continue
+                        # no final state within max_errors poll pauses — 'cancel_unconfirmed' (it used to wait forever)
+                        await self._await_final(self.working)
                     self.working = None
                 self._stop('timeout')
                 return
             if self.working is None:
-                part = self._round_size(self._next_visible(left))
-                if part < min_size:
-                    part = left
+                # the visible slice is not below the minimum order; a tail below the minimum — into this slice
+                part = max(self._round_size(self._next_visible(left)), min_size)
+                part = self._tail_merged(min(part, left), left, min_size)
                 self.working = await self._place(side=side, size=part, price=price, type='limit',
                                                  post_only=self.post_only, reduce_only=self.reduce_only, tag='part')
                 self.extra['parts'] = self.extra['parts'] + 1

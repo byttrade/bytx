@@ -21,6 +21,10 @@ OCO = ('emulated', DOC, False, 'separate stoporders for TP and SL: mutual cancel
 ATTACHED_SL = (True, 'https://www.mexc.com/api-docs/futures/account-and-trading-endpoints/place-order', False,
                'stopLossPrice in Place Order; to verify on the exchange (MEXC has no testnet)')
 
+# Moving a TP/SL (modify_tp_sl): not verified against the docs — a cancel and a new placement (a window without a stop).
+MODIFY_IN_PLACE = None
+TWO_SL = (False, DOC, False, 'not verified — cancel, then the new one')
+
 # state «1: untriggered,2: canceled,3: executed,4: invalidated,5: execution failed»
 _STATES = {1: 'open', 2: 'canceled', 3: 'triggered', 4: 'canceled', 5: 'canceled'}
 

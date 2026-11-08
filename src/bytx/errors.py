@@ -67,6 +67,7 @@ class ErrorCode(Enum):
     CANNOT_CHANGE_MARGIN_MODE = 3005
     POSITION_SIDE_NOT_MATCH = 3006
     REDUCE_ONLY_REJECTED = 3007
+    POSITION_COVERED = 3008
 
     # Leverage & Margin Errors (4xxx)
     LEVERAGE_TOO_HIGH = 4001
@@ -243,10 +244,23 @@ class PositionAlreadyClosed(InvalidOrder):
     """Reduce-only order: no position in this direction (closed earlier — a normal race).
 
     Do not retry: the order was not placed and there is nothing to close. Bybit 110017, OKX 51169,
-    BingX 101205/109420, KuCoin 300009 — or there was no position even before sending.
+    BingX 101205/109420, KuCoin 300009 — or there was no position even before sending. Reduce-only whose side is
+    fully covered by resting closing orders: Bybit 110017, Binance -2022, BingX 101212.
     """
 
     error_code = ErrorCode.POSITION_NOT_FOUND
+
+
+class PositionCovered(InvalidOrder):
+    """Reduce-only rejected with a "no position" code while the side's position is open: its size is covered by
+    resting closing orders (Binance -2022, Bybit 110017, BingX 101212, HTX 1048). The position is NOT closed:
+    cancel the closing orders (or wait for them) and retry.
+
+    ``details``: ``symbol``, ``side`` — the position side, ``contracts`` — the open size, ``code`` — exchange code;
+    ``__cause__`` — the original rejection (:class:`PositionAlreadyClosed`).
+    """
+
+    error_code = ErrorCode.POSITION_COVERED
 
 
 class ReduceExceedsPosition(InvalidOrder):
@@ -289,6 +303,13 @@ class RateLimited(NetworkError, ccxt.RateLimitExceeded):
     def __init__(self, *args: Any, retry_after: Optional[float] = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.retry_after = retry_after
+
+
+class ThrottleQueueFull(RateLimited):
+    """The SDK limiter queue is full (``maxCapacity`` waiters): the request was not sent. The exchange limit was not
+    exceeded — it would have been, had everything been sent at once. ``retry_after`` — how long until the queue
+    drains, s; ``details`` — ``key`` (limiter key) and ``waiting``. Not retried automatically (a retry would only
+    lengthen the queue)."""
 
 
 class ExchangeUnavailable(NetworkError, ccxt.ExchangeNotAvailable):
@@ -480,8 +501,8 @@ __all__ = [
     'BytxError', 'ConfigError', 'NotSupported', 'BadSymbol', 'AuthError', 'PermissionDenied', 'UnsafeApiKey',
     'AccountSuspended', 'InsufficientFunds', 'InvalidOrder', 'OrderTooSmall', 'MinSizeExceedsRisk',
     'OrderNotFound',
-    'DuplicateOrderId', 'NetworkError', 'RequestTimeout', 'RateLimited', 'ExchangeUnavailable',
+    'DuplicateOrderId', 'NetworkError', 'RequestTimeout', 'RateLimited', 'ThrottleQueueFull', 'ExchangeUnavailable',
     'TimestampError', 'UnknownOutcome', 'ExchangeError', 'BatchError', 'ProtectionNotPlaced',
-    'OrderStatusUnknown', 'PositionAlreadyClosed', 'ReduceExceedsPosition', 'PositionOpenError', 'ErrorCode', 'exchange_codes', 'from_ccxt',
+    'OrderStatusUnknown', 'PositionAlreadyClosed', 'PositionCovered', 'ReduceExceedsPosition', 'PositionOpenError', 'ErrorCode', 'exchange_codes', 'from_ccxt',
     'scrub', 'ccxt_secrets', 'SECRET_PARAM_RE',
 ]

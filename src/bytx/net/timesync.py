@@ -1,7 +1,11 @@
 """Clock synchronization with the exchange.
 
 Binance/Bybit/OKX/KuCoin/BingX signatures use ``milliseconds() - options['timeDifference']``;
-ccxt fills the offset in ``load_time_difference()`` (a ``fetch_time`` request). Here:
+ccxt fills the offset in ``load_time_difference()`` (a ``fetch_time`` request): local time AFTER the
+response minus server time — overstated by the response path (~half the RTT), so a signature timestamp never
+runs ahead of the server. The offset of the clocks themselves (the request midpoint: minus half the RTT) is
+``clock_offset_ms`` / ``options['bytxClockOffset']``: the WS latency «exchange → us» is measured by it (by the ccxt
+offset it is understated by the response path — demo 2026-11-04: −4…4 ms at RTT ~200 ms). Here:
 one-off sync, coalescing of concurrent resyncs (a burst of TimestampError → one
 request) and an optional background resync every ``interval`` seconds.
 Hyperliquid does not return time (``has['fetchTime'] = False``) — sync is skipped.
@@ -29,10 +33,11 @@ SHARED_MAX_AGE_SEC = 60.0  # connect(): a neighbor's offset this old is still go
 class _State:
     """Clock offset per key (shared by instances) or per single instance."""
 
-    __slots__ = ('offset_ms', 'last_sync', 'last_mono', 'lock')
+    __slots__ = ('offset_ms', 'clock_ms', 'last_sync', 'last_mono', 'lock')
 
     def __init__(self) -> None:
         self.offset_ms: Optional[int] = None
+        self.clock_ms: Optional[float] = None
         self.last_sync: Optional[float] = None
         self.last_mono: float = float('-inf')
         self.lock = asyncio.Lock()
@@ -58,6 +63,8 @@ class TimeSync:
         self.interval = interval
         self.key = key  # None — offset of this instance only
         self.offset_ms: Optional[int] = None
+        #: local − exchange clock by the time request midpoint, ms (offset_ms − RTT/2)
+        self.clock_offset_ms: Optional[float] = None
         self.last_sync: Optional[float] = None  # unix time of the last successful sync
         self._own: Optional[_State] = None
         self._task: Optional[asyncio.Task] = None
@@ -79,7 +86,10 @@ class TimeSync:
         """Takes the offset from shared state (including into ccxt ``options['timeDifference']``)."""
         if st.offset_ms is not None:
             self._ex.options['timeDifference'] = st.offset_ms
+        if st.clock_ms is not None:
+            self._ex.options['bytxClockOffset'] = st.clock_ms
         self.offset_ms = st.offset_ms
+        self.clock_offset_ms = st.clock_ms
         self.last_sync = st.last_sync
         return self.offset_ms
 
@@ -102,10 +112,14 @@ class TimeSync:
             # while we waited for the lock, another call already synced — no need to repeat
             if not force and st.last_mono >= started - window:
                 return self._adopt(st)
+            sent = time.perf_counter()
             offset = await self._ex.load_time_difference()
+            rtt_ms = (time.perf_counter() - sent) * 1000.0
             # integer: ccxt subtracts the offset from milliseconds(), and a fraction yields timestamp '…722.0'
             # (Binance -1100, Bybit 10001, Bitget 40008 on demo 2026-10-26)
             st.offset_ms = int(round(offset)) if offset is not None else None
+            # ccxt: after − server; the request midpoint is half the RTT earlier
+            st.clock_ms = float(offset) - rtt_ms / 2 if offset is not None else None
             st.last_sync = time.time()
             st.last_mono = time.monotonic()
             return self._adopt(st)

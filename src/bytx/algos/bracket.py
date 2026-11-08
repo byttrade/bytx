@@ -14,7 +14,12 @@
    Hyperliquid (grouping "na"), KuCoin the legs are independent: **emulation**, the algorithm watches the legs
    (:meth:`Exchange.tp_sl_order`) and, once one triggers, cancels the other. Otherwise the remaining
    reduce-only leg would close the next position. ``oco='emulate'``: always watch and cancel.
-   If the position closed some other way (manually, liquidation), the legs are canceled ('position_closed').
+   Demo 2026-11-04: Bybit Partial and BingX — the other leg stays alive while the position is open (no OCO); when
+   the position closes, the exchanges cancel the remaining legs themselves (as does OKX with ``cxlOnClosePos``),
+   Binance does not.
+   If the position closed some other way (manually, liquidation), the legs are canceled ('position_closed'); a leg
+   that triggered between reading the legs and reading the position is seen when canceling — the reason follows it.
+   OKX: a triggered algo pair is not found by algoId for minutes (51603) — reason 'position_closed'.
 
 Result: ``reason`` 'take_profit' / 'stop_loss' / 'protection_triggered' (OKX pair: the exchange does not
 say which leg) / 'position_closed' / 'protection_canceled' (legs canceled by someone else, position open);
@@ -23,10 +28,27 @@ Pause applies only until protection: the algorithm keeps watching the legs. ``ca
 entry cancels the legs (the position is left unprotected; ``close_on_cancel=True`` also closes it).
 An algorithm failure or cancellation of its task (``task.cancel``, process shutdown) does **not** cancel the legs:
 the position's protection stays on the exchange.
+
+**Protection plan and restart.** With an intent store (``create_exchange(..., intents=IntentStore(...))``) the
+protection plan — the position side, TP/SL prices, ``trigger_by``, ``size``, client_ids of the recovery legs — is
+written to the algorithm record (``algos.plan``, :class:`~bytx.recovery.AlgoRecord`) BEFORE the entry is sent. If the
+process is killed between the entry fill and placing the legs (``kill -9``), the algorithm does not resume (no OCO
+watching after a restart), but :meth:`Exchange.recover` (``protect=True``, the default) places the missing legs from
+the plan: only if the plan side's position exists, for the size filled by the entry, no more than the position; legs
+are looked up by the plan client_ids, leg intents and the exchange's open TP/SL before placing — a repeated recover or
+a ``kill -9`` inside it does not duplicate legs; a price already past the trigger — the leg is not placed
+(``price_passed``), the SDK does not close the position. Result — ``report.algos[i].protection`` and ``protected``, a
+position without a stop — ``report.unprotected`` (see :mod:`bytx.recovery.reconcile`). The plan covers only the window
+"entry filled → legs": the algorithm retires it itself (``retired``) — legs placed ('protected', from then on the
+algorithm manages them: a leg canceled by hand or triggered is not resurrected after a restart), ``cancel()`` (before
+canceling the legs and the entry) or ``on_protect_fail`` ('protection_failed' / 'keep'). Stopping the task
+(``task.cancel``, SIGTERM) in this window leaves the record ``unclean`` (not ``finished``): recover() places the legs.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, Optional
+
+from loguru import logger
 
 from bytx.algos.base import EPS, TERMINAL_ORDER, ExecAlgo, _Child, check_positive
 from bytx.errors import BytxError, ConfigError, NetworkError, OrderNotFound, PositionAlreadyClosed
@@ -82,9 +104,49 @@ class Bracket(ExecAlgo):
         self.position_side = 'long' if side == 'buy' else 'short'
         self.legs: list['TpSlOrder'] = []
         self.native = False
+        #: protection plan in the intent store (None — no store); see the module
+        self.plan: Optional[dict] = None
 
     def _counts(self, child: _Child) -> bool:
         return child.tag == 'entry'
+
+    def _record_start(self) -> None:
+        """The algorithm record, then the protection plan — both before the entry (not written — 'failed' without
+        orders). The plan's leg client_ids are those recovery will place; the algorithm places its own legs the usual
+        way (on OKX — as a TP+SL pair)."""
+        super()._record_start()
+        store = getattr(self.ex, 'intents', None)
+        if not self._recorded or store is None:
+            return
+        self.plan = {'side': self.position_side, 'take_profit': self.take_profit, 'stop_loss': self.stop_loss,
+                     'trigger_by': self.trigger_by, 'size': self.size,
+                     'take_profit_client_id': self.ex._new_client_id('tp'),
+                     'stop_loss_client_id': self.ex._new_client_id('sl')}
+        store._on_algo_plan(self.ex, self.id, self.plan)
+
+    def _retire_plan(self, reason: str) -> None:
+        """The protection plan is retired by the algorithm itself (``retired`` = ``reason``): 'protected' — legs placed,
+        from then on the algorithm manages them (a leg canceled by hand or triggered is not resurrected after a
+        restart); a cancel reason — the legs are removed on purpose; 'protection_failed' / 'keep' — protection was not
+        placed, the position is closed or kept per ``on_protect_fail``. recover() places no legs for a retired plan.
+        The first reason stays; a write failure does not affect the algorithm."""
+        store = getattr(self.ex, 'intents', None)
+        if self.plan is None or store is None or self.plan.get('retired'):
+            return
+        self.plan = {**self.plan, 'retired': reason}
+        try:
+            store._on_algo_plan(self.ex, self.id, self.plan)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'{self.ex.name} {self.id}: protection plan not marked retired ({reason}): {e!r}')
+
+    def _unfinished(self) -> Optional[str]:
+        """Entry filled, no legs, the plan is live (the task was stopped between the entry and the legs:
+        ``task.cancel``, SIGTERM) — an ``unclean`` record: recover() places the legs from the plan after a restart."""
+        if self.plan is None or self.plan.get('retired') or any(x.state not in _LEG_DONE for x in self.legs):
+            return None
+        filled = self._round_size(self.filled)
+        return f'entry filled ({filled:g}) without TP/SL legs — protection from the plan on recover()' \
+            if filled > EPS else None
 
     # ─── stages ─────────────────────────────────────────────────────────────
 
@@ -99,6 +161,7 @@ class Bracket(ExecAlgo):
             self._stop('entry_not_filled')
             return
         await self._protect(filled, mode)
+        self._retire_plan('protected')
         await self._watch()
 
     async def _enter(self) -> bool:
@@ -140,6 +203,9 @@ class Bracket(ExecAlgo):
             if self.on_protect_fail == 'close':
                 await self._cancel_legs()
                 await self._close_position(filled)
+                self._retire_plan('protection_failed')
+            else:
+                self._retire_plan('keep')
             self.reason = 'protection_failed'
             raise
         self._legs(legs)
@@ -176,19 +242,27 @@ class Bracket(ExecAlgo):
                 winner = fired[0]
                 if not self.native:
                     await self._cancel_legs(exclude=winner.id)
-                self.extra['triggered'] = winner.id
-                self._stop({'take_profit': 'take_profit', 'stop_loss': 'stop_loss'}.get(winner.kind,
-                                                                                        'protection_triggered'))
+                self._triggered(winner)
                 return
             open_legs = [x for x in fresh if x.state not in _LEG_DONE]
             if not await self._position_open():
                 await self._cancel_legs()
-                self._stop('position_closed')
+                # a leg may have triggered between reading the legs and reading the position (the exchange reports
+                # the leg state with a delay; demo BingX 2026-11-04): canceling re-reads the legs — the fired one shows
+                fired = [x for x in self.legs if x.state == 'triggered']
+                if fired:
+                    self._triggered(fired[0])
+                else:
+                    self._stop('position_closed')
                 return
             if not open_legs:
                 self._stop('protection_canceled')
                 return
             await self._sleep(self.poll)
+
+    def _triggered(self, winner: 'TpSlOrder') -> None:
+        self.extra['triggered'] = winner.id
+        self._stop({'take_profit': 'take_profit', 'stop_loss': 'stop_loss'}.get(winner.kind, 'protection_triggered'))
 
     async def _position_open(self) -> bool:
         tr = self.position_tracker
@@ -247,6 +321,8 @@ class Bracket(ExecAlgo):
             pass
 
     async def _cleanup(self) -> None:
+        if self._stop_reason is not None:
+            self._retire_plan(self._stop_reason)
         for c in self._children:
             if c.tag == 'entry' and c.order.status not in TERMINAL_ORDER:
                 await self._cancel_child(c.order)

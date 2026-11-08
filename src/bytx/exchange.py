@@ -13,14 +13,16 @@ import asyncio
 import contextlib
 import importlib
 import inspect
+import json
 import math
 import time
 import weakref
+from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterable, Literal, Optional, TypeVar, Union, cast
 
 import ccxt
 
-from bytx import convert, sizing
+from bytx import batch_cancel as _batch_cancel, convert, sizing
 from bytx.net._sig.opts import BrokerConfig
 from bytx.exchanges.binance.ccxt_fixes import algo_as_order as binance_algo_as_order
 from bytx.exchanges.gate.leverage import leverage_params as gate_leverage_params
@@ -39,6 +41,7 @@ from bytx.errors import (
     OrderStatusUnknown,
     OrderTooSmall,
     PositionAlreadyClosed,
+    PositionCovered,
     PositionOpenError,
     ProtectionNotPlaced,
     RateLimited,
@@ -536,13 +539,27 @@ class Exchange:
         """
         await self.connect()
         syms = [self.symbol(s) for s in symbols] if symbols else None
-        raw = await self._call(self._ex.fetch_positions, syms)
+        if self._ex.id == 'bybit' and not syms:
+            raw = await self._bybit_account_positions()
+        else:
+            raw = await self._call(self._ex.fetch_positions, syms)
         result = []
         for p in raw:
             pos = convert.position(p, self._market_or_none(p.get('symbol')), include_zero=include_zero)
             if pos is not None:
                 result.append(pos)
         return result
+
+    async def _bybit_account_positions(self) -> list[dict]:
+        """Bybit: account positions — all pages of /v5/position/list (docs: ``limit`` 1..200, default 20;
+        ``cursor`` ← ``nextPageCursor``). ccxt 4.4.65 without a symbol reads one page of 20: ``close_everything``
+        closed 20 positions of one settleCoin, the account ``PositionTracker`` resync declared the rest closed.
+        Walks every settleCoin of the linear markets (USDT, USDC) and inverse, if loaded; each page is a separate call
+        through the limiter; a cut-off walk (the cursor did not end within MAX_PAGES) raises ExchangeError."""
+        from bytx.exchanges.bybit import orders as bybit_orders
+        return await bybit_orders.account_pages(
+            lambda params: self._call(self._ex.fetch_positions, None, params), self._ex.markets,
+            bybit_orders.POSITIONS_PAGE_LIMIT, key=bybit_orders.position_key, what='position/list')
 
     async def position(self, symbol: str, side: Optional[PositionSide] = None) -> Optional[Position]:
         """Position for a symbol; None if there is no position.
@@ -559,32 +576,55 @@ class Exchange:
         return found[0] if found else None
 
     async def open_orders(self, symbol: Optional[str] = None) -> list[Order]:
+        """Open orders of the symbol (without a symbol — of the account): all pages of the exchange list — Bybit
+        (cursor), OKX (``after``), KuCoin Futures (``currentPage``); each page is a separate call through the limiter."""
         await self.connect()
         s = self.symbol(symbol) if symbol else None
         if s is None:
             self._ex.options['warnOnFetchOpenOrdersWithoutSymbol'] = False
-        elif self._ex.id == 'bybit':
-            return await self._bybit_open_orders(s)
+        if self._ex.id == 'bybit':
+            return await (self._bybit_open_orders(s) if s is not None else self._bybit_account_open_orders())
+        if self._ex.id == 'okx':
+            from bytx.exchanges.okx import orders as okx_orders
+            raw = await okx_orders.open_pages(
+                lambda params: self._call(self._ex.fetch_open_orders, s, None, None, params), s or '')
+            return [self._order(o) for o in raw]
+        if self._ex.id == 'kucoinfutures':
+            return await self._kucoin_open_orders(s)
         raw = await self._call(self._ex.fetch_open_orders, s)
         return [self._order(o) for o in raw]
+
+    async def _bybit_account_open_orders(self) -> list[Order]:
+        """Bybit without a symbol: pages of /v5/order/realtime by 50 with a cursor (ccxt — one page of 20) for every
+        settleCoin of the linear markets (USDT, USDC); a cut-off walk raises ExchangeError."""
+        from bytx.exchanges.bybit import orders as bybit_orders
+        fetch = lambda params: self._call(self._ex.fetch_open_orders, None, None, None, params)  # noqa: E731
+        if self.market_type == 'swap':   # docs: linear without symbol needs settleCoin — each one
+            raw = await bybit_orders.account_pages(fetch, self._ex.markets, bybit_orders.OPEN_PAGE_LIMIT,
+                                                   key=lambda o: str(o.get('id')), what='order/realtime',
+                                                   inverse=False)
+        else:
+            raw = await bybit_orders.ccxt_pages(fetch, bybit_orders.OPEN_PAGE_LIMIT, key=lambda o: str(o.get('id')),
+                                                what='order/realtime')
+        return [self._order(o) for o in raw]
+
+    async def _kucoin_open_orders(self, s: Optional[str]) -> list[Order]:
+        """KuCoin Futures: all pages of GET /api/v1/orders?status=active (ccxt — one page of 50); parsing — ccxt."""
+        from bytx.exchanges.kucoin import orders as kucoin_orders
+        market = self._ex.market(s) if s is not None else None
+        request: dict = {'status': 'active'}
+        if market is not None:
+            request['symbol'] = market['id']
+        rows = await kucoin_orders.open_rows(lambda req: self._call(self._ex.futuresPrivateGetOrders, req), request)
+        return [self._order(o) for o in self._ex.parse_orders(rows, market)]
 
     async def _bybit_open_orders(self, s: str) -> list[Order]:
         """Bybit: all pages of the symbol's open orders (50 each, ``nextPageCursor``) — ccxt returns only the first
         20. Each page is a separate call through the rate limiter."""
         from bytx.exchanges.bybit import orders as bybit_orders
         market = self._ex.market(s)
-        out: list[Order] = []
-        seen: set[str] = set()
-        cursor: Optional[str] = None
-        for _ in range(bybit_orders.OPEN_MAX_PAGES):
-            resp = await self._call(self._ex.private_get_v5_order_realtime, bybit_orders.open_request(market, cursor))
-            rows, cursor = bybit_orders.open_page(resp)
-            new = [r for r in rows if str(r.get('orderId')) not in seen]
-            seen.update(str(r.get('orderId')) for r in new)
-            out += [self._order(self._ex.parse_order(r, market)) for r in new]
-            if not cursor or not new:
-                break
-        return out
+        rows = await bybit_orders.open_rows(lambda req: self._call(self._ex.private_get_v5_order_realtime, req), market)
+        return [self._order(self._ex.parse_order(r, market)) for r in rows]
 
     async def closed_orders(self, symbol: Optional[str] = None, *, since: Optional[int] = None,
                             limit: Optional[int] = None) -> list[Order]:
@@ -720,7 +760,10 @@ class Exchange:
             return await self._bybit_order(s, None, client_id)
         if self._ex.id == 'bitget':
             return await self._bitget_order_by_client_id(s, client_id)
+        if self.market_type == 'spot' and self._ex.id in ('okx', 'kucoin'):
+            return await self._spot_order_by_client_id(s, client_id)
         params = {'clientOrderId': client_id, **self._fetch_order_params()}
+        lookup_error: Optional[BytxError] = None
         try:
             return self._order(await self._call(self._ex.fetch_order, None, s, params))
         except OrderNotFound:
@@ -729,13 +772,52 @@ class Exchange:
                 raise
         except NotSupported:
             raise
-        except BytxError:
-            pass
+        except BytxError as e:
+            lookup_error = e
         # fallback: open and recently closed orders
         for o in await self.open_orders(s) + await self.closed_orders(s, limit=100):
             if o.client_id == client_id:
                 return o
+        if lookup_error is not None and lookup_error.retryable:
+            # the exact lookup did not answer (timeout / 5xx / 429 — retryable) and the order is not in the lists: the
+            # lists hold open orders and the last 100 closed ones, an order filled earlier is not in them. "Not found"
+            # is not "could not check" — the original error, not OrderNotFound: otherwise find_order returned None and
+            # recover re-created the entry. A definite exchange answer (not a network failure) — the usual path:
+            # OrderNotFound after the lists
+            raise lookup_error
         raise OrderNotFound(f'order with client_id {client_id} not found', exchange=self.name)
+
+    async def _spot_order_by_client_id(self, s: str, client_id: str) -> Order:
+        """Spot OKX / KuCoin: an order by client_id in any status within the exchange's retention.
+
+        OKX: /trade/order?clOrdId → orders-history (7 days) → orders-history-archive (3 months), pages by ``after``.
+        KuCoin: the account mode (GET /api/v1/hf/accounts/opened); HF — hf/orders/client-order/{clientOid}, then
+        hf/orders/done (cursor ``lastId``); classic — /api/v1/order/client-order/{clientOid} (active orders only).
+        An empty response (``data: null``) is «not found». A failure of any step is its exception, not OrderNotFound."""
+        market = self._ex.market(s)
+        if self._ex.id == 'kucoin' and self._ex.options.get('hf') is None:
+            await self._call(self._ex.load_migration_status)
+            if self._ex.options.get('hf') is None:
+                raise ExchangeError('kucoin spot: the account mode (hf/classic) is unknown', exchange=self.name)
+        try:
+            raw = await self._call(self._ex.fetch_order, None, s, {'clientOrderId': client_id})
+            if raw.get('id'):
+                return self._order(raw)
+        except OrderNotFound:
+            pass
+        if self._ex.id == 'okx':
+            from bytx.exchanges.okx import orders as okx_orders
+            found = await okx_orders.spot_history_by_client_id(self._call, self._ex, market, client_id)
+        elif self._ex.options.get('hf'):
+            from bytx.exchanges.kucoin import orders as kucoin_orders
+            row = await kucoin_orders.spot_hf_done_by_client_id(
+                lambda p: self._call(self._ex.privateGetHfOrdersDone, p), market['id'], client_id)
+            found = self._ex.parse_order(row, market) if row is not None else None
+        else:
+            found = None
+        if found is None:
+            raise OrderNotFound(f'order with client_id {client_id} not found', exchange=self.name)
+        return self._order(found)
 
     async def my_trades(self, symbol: Optional[str] = None, *, since: Optional[int] = None,
                         limit: Optional[int] = None) -> list[Fill]:
@@ -835,6 +917,12 @@ class Exchange:
             return self._leverage.get(s)
         params = {'marginMode': mode} if self._ex.id in ('okx', 'kucoinfutures') else {}
         raw = await self._call(self._ex.fetch_leverage, s, params)
+        if self._ex.id == 'bitget':
+            # Get Single Account holds both pockets: cross — crossedMarginLeverage, isolated — per side;
+            # no SDK mode set — the symbol's mode from the response (marginMode)
+            from bytx.exchanges.bitget.leverage import leverage_pocket
+            _, long, short = leverage_pocket(raw.get('info'), mode)
+            return self._pick_leverage(s, long, short, side)
         return self._pick_leverage(s, raw.get('longLeverage'), raw.get('shortLeverage'), side)
 
     def _pick_leverage(self, s: str, long: Any, short: Any, side: Optional[str]) -> Optional[float]:
@@ -1229,6 +1317,35 @@ class Exchange:
         return await self.place_order(symbol, 'sell', size=size, notional=notional,
                                       contracts=contracts, price=price, **kwargs)
 
+    async def sell_all(self, symbol: str, *, client_id: Optional[str] = None) -> Optional[Order]:
+        """Spot: a market sell of the whole free balance of the base coin.
+
+        ``free`` from :meth:`balance` is rounded down strictly to the lot step (Binance market — also to
+        ``MARKET_LOT_SIZE``); below the step, the minimum size or the minimum cost at the reference price it is
+        «dust»: no order is sent, a WARNING is logged and None is returned. Otherwise — :meth:`place_order` with all
+        its protection (reconciliation by ``client_id`` on an unknown outcome). Not spot — :class:`ConfigError`.
+        """
+        if self.market_type != 'spot':
+            raise ConfigError("sell_all is for market='spot' only", exchange=self.name,
+                              details={'symbol': symbol, 'market': self.market_type})
+        await self.connect()
+        s = self.symbol(symbol)
+        m = to_market(self._ex.market(s), self._ex.id)
+        free = balance_free = (await self.balance()).free(m.base)
+        if m.amount_step and self._ex.precisionMode == ccxt.TICK_SIZE:
+            # strictly down: snapping to a whole lot would raise the size above free — an exchange rejection (OKX 51008)
+            step = Decimal(str(m.amount_step))
+            free = float((Decimal(str(free)) / step).to_integral_value(rounding=ROUND_DOWN) * step)
+        try:
+            if free <= 0:
+                raise OrderTooSmall(f'no free {m.base}', exchange=self.name)
+            return await self.place_order(s, 'sell', size=free, client_id=client_id)
+        except OrderTooSmall as e:
+            from loguru import logger
+            logger.warning(f'{self.name}: sell_all {s} — dust: free={balance_free}, min={m.min_amount} {m.base}, '
+                           f'min_cost={m.min_cost}, step={m.amount_step} ({e.message})')
+            return None
+
     async def place_order(self, symbol: str, side: Side, *, size: Optional[float] = None,
                           notional: Optional[float] = None, contracts: Optional[float] = None,
                           margin: Optional[float] = None, leverage: Optional[float] = None,
@@ -1236,7 +1353,8 @@ class Exchange:
                           post_only: bool = False, time_in_force: Optional[str] = None,
                           reduce_only: bool = False, client_id: Optional[str] = None,
                           take_profit: Optional[float] = None, stop_loss: Optional[float] = None,
-                          params: Optional[dict] = None, reconcile: bool = True) -> Order:
+                          params: Optional[dict] = None, reconcile: bool = True,
+                          max_round_up: Optional[float] = None) -> Order:
         """Places an order.
 
         Exactly one of: ``size`` (base), ``notional`` (quote, e.g. USDT; full
@@ -1246,6 +1364,9 @@ class Exchange:
         is converted to contracts per :meth:`contracts_for_margin`
         at the execution price: limit uses its own price after
         rounding, market uses the reference price (best book price/ticker) rounded to the tick.
+        A ``margin`` size below the minimum lot is rounded up to the minimum; ``max_round_up`` caps how many times
+        the minimum lot may exceed the requested size (above it — :class:`OrderTooSmall`; None — no cap, a WARNING
+        at 2× and more).
         Default ``type``: 'limit' with ``price``, otherwise 'market'.
         ``post_only``: maker only; ``time_in_force``: 'GTC' / 'IOC' / 'FOK';
         ``take_profit`` / ``stop_loss``: trigger prices attached to the order (where
@@ -1289,10 +1410,17 @@ class Exchange:
                                           post_only=post_only, time_in_force=time_in_force,
                                           reduce_only=reduce_only, client_id=client_id,
                                           take_profit=take_profit, stop_loss=stop_loss,
-                                          params=params)
+                                          params=params, max_round_up=max_round_up)
         order = await self._submit_order(request, reconcile=reconcile)
         if request.get('tp_sl'):
-            await self._protect(order, request)
+            try:
+                await self._protect(order, request)
+            except ProtectionNotPlaced:
+                # the protection failure is reported to the caller — the plan is retired: recover() will not place
+                # these legs later on another position of the same side
+                if self.intents is not None and request.get('client_id'):
+                    self.intents._retire_plan(self, request['client_id'], 'protection_failed')
+                raise
         return order
 
     async def _attach_tp_sl(self, order: Order, request: dict) -> None:
@@ -1445,6 +1573,8 @@ class Exchange:
                 # "no position" / "exceeds position" / funds, by the item's code
                 element = position_error(self._ex.id, element, reduce_only=bool(r.get('reduce_only'))) \
                     or refine_error(self._ex.id, element)
+                if isinstance(element, PositionAlreadyClosed) and r.get('reduce_only'):
+                    element = await self._verify_position_closed(r, element)   # "covered" is not "closed"
                 results.append(element)
             else:
                 results.append(None)  # outcome unknown: reconcile by client_id
@@ -1766,7 +1896,13 @@ class Exchange:
         Binance algo ids (TP/SL) go to the Algo API, as in :meth:`cancel_order`. Orders
         are canceled independently: if some fail, raises :class:`~bytx.errors.BatchError`,
         ``details``: ``results``: per index, Order or error, ``orders``: canceled ones,
-        ``errors``: {order_id: error}.
+        ``errors``: {order_id: error}. An order that is no longer in the book is a "not open" error
+        (:class:`~bytx.errors.OrderNotFound`, :func:`bytx.outcome.order_not_open`).
+
+        Batch cancel (:mod:`bytx.batch_cancel`, per the docs): Bybit (linear/spot) — 10 per request, OKX — 20,
+        Binance USDⓈ-M — 10; the response is parsed per order (item code: "no such order", a rate limit — RateLimited;
+        an item rejected by the rate limit is retried once by a single cancel). Other exchanges — a ccxt batch
+        (``cancelOrders``) or one by one.
         """
         await self.connect()
         s = self.symbol(symbol)
@@ -1774,41 +1910,36 @@ class Exchange:
         results: dict[int, Union[Order, BytxError]] = {}
         single = [i for i, oid in enumerate(ids) if oid in self._binance_algo_ids]
         batch = [i for i in range(len(ids)) if i not in set(single)]
-        if batch and self._ex.has.get('cancelOrders'):
-            error: Optional[BytxError] = None
-            try:
-                with self._journal_op(s, [ids[i] for i in batch]):
-                    raw = await self._call(self._ex.cancel_orders, [ids[i] for i in batch], s)
-            except BytxError as e:
-                raw, error = [], e
-            rows = [o for o in raw if isinstance(o, dict)] if isinstance(raw, list) else []
-            if rows and all(o.get('id') for o in rows):
-                # all items have an id: match by id (BingX returns only successful ones)
-                by_id = {str(o['id']): o for o in rows}
-                matched: list[Optional[dict]] = [by_id.get(ids[i]) for i in batch]
-            else:
-                matched = [o for _, o in zip(batch, [*rows, *[None] * len(batch)])]
-            for i, o in zip(batch, matched):
-                reason = _element_error(o) if isinstance(o, dict) and not o.get('id') else None
-                if error is not None:
-                    results[i] = error
-                elif reason is not None:
-                    # item code: "order not open" (order_not_open), rate limit — RateLimited (Bybit 10006)
-                    results[i] = refine_error(self._ex.id, ExchangeError(reason[1], exchange=self.name,
-                                                                         code=reason[0]))
-                elif not isinstance(o, dict):
-                    results[i] = ExchangeError(f'order {ids[i]}: no cancel response', exchange=self.name)
-                else:
-                    results[i] = self._canceled(o, s, ids[i])
-                    if self.intents is not None:
-                        self.intents._on_update(self, results[i])  # type: ignore[arg-type]
-                    if self.journal is not None:
-                        await self.journal._on_canceled(self, results[i], True)  # type: ignore[arg-type]
-            batch = []
-        rest = single + batch
-        gathered = await asyncio.gather(*(self.cancel_order(s, ids[i]) for i in rest), return_exceptions=True)
-        for i, x in zip(rest, gathered):
-            results[i] = x if isinstance(x, Order) else self._as_error(x)
+        market = self._ex.market(s)
+        size = _batch_cancel.batch_size(self._ex.id, market) if batch and self._ex.has.get('cancelOrders') else 0
+        chunks: list[list[int]] = []
+        if size:
+            chunks, lane = _batch_cancel.plan(batch, size)
+            single += lane
+        elif batch and self._ex.has.get('cancelOrders') and self._ex.id not in _batch_cancel.BATCH_MAX:
+            await self._cancel_ccxt_batch(s, ids, batch, results)
+        else:
+            single += batch
+
+        async def chunk(idx: list[int]) -> None:
+            for i, x in zip(idx, await self._cancel_chunk(s, market, [ids[i] for i in idx])):
+                results[i] = x
+
+        gathered = await asyncio.gather(*(chunk(c) for c in chunks),
+                                        *(self.cancel_order(s, ids[i]) for i in single), return_exceptions=True)
+        for i, x in zip(single, gathered[len(chunks):]):
+            results[i] = x if isinstance(x, Order) else self._as_error(cast(BaseException, x))
+        for c, x in zip(chunks, gathered[:len(chunks)]):
+            if isinstance(x, BaseException):  # parsing does not raise; just in case — an error for each order of the batch
+                for i in c:
+                    results.setdefault(i, self._as_error(x))
+        # a batch item rejected by the rate limit (Bybit 10006: «the part that exceeds the limit will fail»; demo
+        # 2026-11-04 — 3 of 129 at 9 orders/s) — retried once by a single cancel: the exchange limits it separately
+        limited = [i for c in chunks for i in c if isinstance(results.get(i), RateLimited)]
+        if limited:
+            again = await asyncio.gather(*(self.cancel_order(s, ids[i]) for i in limited), return_exceptions=True)
+            for i, x in zip(limited, again):
+                results[i] = x if isinstance(x, Order) else self._as_error(cast(BaseException, x))
         ordered = [results[i] for i in range(len(ids))]
         errors = {ids[i]: x for i, x in enumerate(ordered) if isinstance(x, BytxError)}
         if errors:
@@ -1818,6 +1949,91 @@ class Exchange:
                              details={'results': ordered, 'orders': [x for x in ordered if isinstance(x, Order)],
                                       'errors': errors}) from first
         return ordered  # type: ignore[return-value]
+
+    async def _cancel_chunk(self, s: str, market: dict, ids: list[str]) -> list[Union[Order, BytxError]]:
+        """One batch cancel request (:mod:`bytx.batch_cancel`): the outcome per id — Order or an error."""
+        method, params = _batch_cancel.request(self._ex.id, market, ids)
+        error: Optional[BytxError] = None
+        try:
+            with self._journal_op(s, ids):
+                raw = await self._call(getattr(self._ex, method), params)
+        except BytxError as e:
+            raw, error = _batch_cancel.error_body(e), e     # OKX code 1: the item codes are in the response body
+        matched = _batch_cancel.match(ids, _batch_cancel.elements(self._ex.id, raw))
+        out: list[Union[Order, BytxError]] = []
+        for oid, item in zip(ids, matched):
+            if item is None:
+                out.append(error or ExchangeError(f'order {oid}: no cancel response', exchange=self.name,
+                                                  details={'symbol': s, 'order_id': oid}))
+                continue
+            _, code, msg, row = item
+            if code is not None:
+                out.append(self._element_cancel_error(code, msg or code, s, oid, market))
+                continue
+            order = self._canceled(self._ex.parse_order(row, market), s, oid)
+            out.append(order)
+            if self.intents is not None:
+                self.intents._on_update(self, order)
+            if self.journal is not None:
+                await self.journal._on_canceled(self, order, True)
+            if self._observers:
+                self.emit('order.canceled', symbol=order.symbol or s, order=order, data={'ours': True})
+        return out
+
+    def _element_cancel_error(self, code: str, msg: str, s: str, oid: str, market: dict) -> BytxError:
+        """A batch cancel item rejection by the exchange code — the same class as a single cancel with this code
+        (the market's ccxt ``exceptions`` table — Binance has its own for linear/inverse/spot, then the shared one; the
+        SDK refinement — RateLimited etc.); "the order is not in the book" (ORDER_NOT_OPEN table) — always
+        OrderNotFound."""
+        details = {'symbol': s, 'order_id': oid}
+        table = self._ex.exceptions if isinstance(getattr(self._ex, 'exceptions', None), dict) else {}
+        kind = 'inverse' if market.get('inverse') else 'linear' if market.get('contract') else 'spot'
+        by_market: dict = table.get(kind) if isinstance(table.get(kind), dict) else {}  # type: ignore[assignment]
+        cls = (by_market.get('exact') or {}).get(code) or (table.get('exact') or {}).get(code) or ccxt.ExchangeError
+        err = from_ccxt(cls(json.dumps({'code': code, 'msg': msg})), self.name)
+        err.message, err.code, err.details = msg, code, details
+        if order_not_open(self._ex.id, err) and not isinstance(err, OrderNotFound):
+            return OrderNotFound(msg, exchange=self.name, code=code, details=details)
+        return err
+
+    async def _cancel_ccxt_batch(self, s: str, ids: list[str], batch: list[int],
+                                 results: dict[int, Union[Order, BytxError]]) -> None:
+        """A ccxt ``cancel_orders`` batch as a whole (exchanges without their own batch cancel in
+        :mod:`bytx.batch_cancel`)."""
+        error: Optional[BytxError] = None
+        try:
+            with self._journal_op(s, [ids[i] for i in batch]):
+                raw = await self._call(self._ex.cancel_orders, [ids[i] for i in batch], s)
+        except BytxError as e:
+            raw, error = [], e
+        rows = [o for o in raw if isinstance(o, dict)] if isinstance(raw, list) else []
+        if rows and all(o.get('id') for o in rows):
+            # all items have an id: match by id (BingX returns only successful ones)
+            by_id = {str(o['id']): o for o in rows}
+            matched: list[Optional[dict]] = [by_id.get(ids[i]) for i in batch]
+        else:
+            matched = [o for _, o in zip(batch, [*rows, *[None] * len(batch)])]
+        market = self._ex.market(s)
+        for i, o in zip(batch, matched):
+            # Bitget batch-cancel-orders: a failureList record has orderId and errorCode (exchanges/bitget/ccxt_fixes)
+            check = isinstance(o, dict) and (not o.get('id') or self._ex.id == 'bitget')
+            reason = _element_error(o) if check else None
+            if error is not None:
+                results[i] = error
+            elif reason is not None and reason[0]:
+                # item code — the same class as a single cancel; "no such order" (ORDER_NOT_OPEN, Bitget 40819) —
+                # OrderNotFound, as cancel_orders promises and as _cancel_chunk parses it
+                results[i] = self._element_cancel_error(reason[0], reason[1], s, ids[i], market)
+            elif reason is not None:
+                results[i] = refine_error(self._ex.id, ExchangeError(reason[1], exchange=self.name))
+            elif not isinstance(o, dict):
+                results[i] = ExchangeError(f'order {ids[i]}: no cancel response', exchange=self.name)
+            else:
+                results[i] = self._canceled(o, s, ids[i])
+                if self.intents is not None:
+                    self.intents._on_update(self, results[i])  # type: ignore[arg-type]
+                if self.journal is not None:
+                    await self.journal._on_canceled(self, results[i], True)  # type: ignore[arg-type]
 
     async def cancel_all(self, symbol: Optional[str] = None, *, client_id_prefix: Optional[str] = None,
                          order_ids: Optional[Iterable[str]] = None, all_orders: bool = False) -> CancelReport:
@@ -1837,8 +2053,10 @@ class Exchange:
 
         Returns :class:`~bytx.types.CancelReport`: per order ``canceled`` /
         ``already_closed`` (already filled/canceled, final status) / ``error``. Orders
-        are canceled one by one and independently; in ``all_orders`` mode exchanges with a "cancel
-        all by symbol" endpoint clear the book in one request (statuses from the open orders snapshot).
+        are canceled independently — in batches where the exchange supports them (:meth:`cancel_orders`),
+        otherwise one by one; in ``all_orders`` mode exchanges with a "cancel all by symbol" endpoint clear
+        the book in one request (statuses from the open orders snapshot).
+
         If there are errors, raises :class:`~bytx.errors.BatchError` after all cancellations, ``details``:
         ``report``, ``done``: {symbol: canceled}, ``failed``: {symbol: first error}
         (``'*'``: the TP/SL list was not received).
@@ -1888,6 +2106,35 @@ class Exchange:
 
         return list(await asyncio.gather(*(one(oid, cid) for oid, cid in items)))
 
+    async def _cancel_many(self, s: str, items: list[tuple[str, Optional[str]]]) -> list[CancelResult]:
+        """Cancel own orders (id, client_id) in batches (:meth:`cancel_orders`); "the order is not in the book" — the
+        final status from the exchange, as in a one-by-one cancel. Without a batch cancel per the docs — one by one
+        (:meth:`_cancel_each`)."""
+        market = self._ex.market(s)
+        if len(items) < 2 or not self._ex.has.get('cancelOrders') or not _batch_cancel.batch_size(self._ex.id, market):
+            return await self._cancel_each(s, items)
+        ids = [oid for oid, _ in items]
+        try:
+            got: list[Union[Order, BytxError]] = list(await self.cancel_orders(s, ids))
+        except BatchError as e:
+            got = list((e.details or {}).get('results') or [])
+            if len(got) != len(ids):
+                return await self._cancel_each(s, items)
+        out: list[CancelResult] = []
+        for (oid, cid), x in zip(items, got):
+            if isinstance(x, Order):
+                out.append(CancelResult(oid, s, 'canceled', cid or x.client_id, order=x))
+            elif order_not_open(self._ex.id, x):
+                try:
+                    order = await self._already_closed(s, oid, None, x)
+                    out.append(CancelResult(oid, s, 'already_closed', cid or order.client_id,
+                                            kind='tp_sl' if order.trigger_price else 'order', order=order))
+                except Exception as e:  # noqa: BLE001 — the final status is unknown: the original error
+                    out.append(CancelResult(oid, s, 'error', cid, error=self._as_error(e)))
+            else:
+                out.append(CancelResult(oid, s, 'error', cid, error=x))
+        return out
+
     async def _cancel_tp_sl_list(self, s: str, orders: list[TpSlOrder]) -> list[CancelResult]:
         out = []
         with self._journal_op(s, [o.id for o in orders] + [o.client_id for o in orders]):
@@ -1928,7 +2175,7 @@ class Exchange:
                 except BytxError as e:
                     out += [CancelResult(o.id, s, 'error', o.client_id, error=e) for o in listed]
             elif listed:
-                out += await self._cancel_each(s, [(o.id, o.client_id) for o in listed])
+                out += await self._cancel_many(s, [(o.id, o.client_id) for o in listed])
             if s in conditional:  # phases are independent: TP/SL are canceled even if regular orders failed
                 try:
                     tps = [t for t in await _protection.tp_sl_orders(self, s)
@@ -1978,6 +2225,10 @@ class Exchange:
         ``side`` as in :meth:`position`: an invalid side or hedge with long and short
         without ``side`` raises :class:`ConfigError` and nothing is sent. A reduce-only rejection
         that may leave the position (OKX 51170, 51205) raises :class:`InvalidOrder`, not None.
+        An ambiguous "no position" answer (Binance -2022, Bybit 110017, BingX 101212, HTX 1048 — it also means "the
+        side is fully covered by resting closing orders") is re-checked by reading the position (as for any
+        reduce-only, :meth:`_unplaced`): the position remains → :class:`~bytx.errors.PositionCovered`, closed — None,
+        read failure — :class:`InvalidOrder` with ``details['position_unverified']``.
         """
         pos = await self.position(symbol, side)
         if pos is None:
@@ -2266,12 +2517,32 @@ class Exchange:
         The old order is read from the exchange (:meth:`tp_sl_order`); side and size are taken from it
         (the position is not read); ``size`` / ``contracts`` set the new size. Only this order's leg
         changes: ``take_profit`` for TP, ``stop_loss`` for SL; for an OKX pair (kind 'tp_sl') either,
-        the missing price stays as before. ``client_id``: id of the new order, sent as is.
+        the missing price stays as before. ``client_id``: id of the new order, sent as is. **Exception —
+        Bitget, a whole-position TP/SL** (``pos_loss`` / ``pos_profit``) without a new size: moved in place
+        (``modify-tpsl-order``), the order keeps the PREVIOUS ``client_id`` (``result.order.client_id``, a warning in
+        the log) — the exchange doesn't create a second such order per side but replaces the previous one (demo
+        2026-11-04), cancel-first would leave the position without a stop; no window without a stop takes priority.
+        A size ``size`` / ``contracts`` ≤ 0 — ConfigError before any action.
 
-        Atomic for Bybit whole-position TP/SL (``/v5/position/trading-stop``, tpslMode=Full: the same
-        call changes the trigger in place, v5 docs). Otherwise: cancel the old one → place the new one;
-        the new one is placed only if the old one is definitely gone (cancel confirmed or already removed).
-        OKX ``amend-algos`` is not used: that docs section has not been verified (not_done).
+        Without a window without a stop where the exchange allows it (per the exchange docs,
+        :func:`bytx.exchanges.tp_sl_modify`, ``strategy`` in the result):
+
+        - ``in_place`` — the trigger amended in place in one request: OKX ``amend-algos`` (the same algoId; not
+          with a new ``client_id`` / ``trigger_by`` — the amend doesn't change them), Bybit whole-position TP/SL
+          (``/v5/position/trading-stop``, tpslMode=Full, without a new size), Bitget ``modify-tpsl-order``
+          (``pos_loss`` / ``pos_profit`` without a new size — with any ``client_id``; with a size — the same
+          ``client_id``);
+        - ``make_before_break`` — the new one is placed FIRST, the previous one is removed after: Binance (algo with
+          quantity), Bybit Partial, OKX (otherwise), BingX, KuCoin, Hyperliquid, Bitget ``loss_plan`` /
+          ``profit_plan`` (a new ``client_id`` or size; «whole position» → a size). The new one rejected — the previous
+          one is untouched (``old='alive'``, ``new='rejected'``); outcome unknown — the same (look up by
+          ``client_ids``); a failed removal of the previous one — the new one is not lost: ``old='alive'``,
+          ``both_alive`` — both are on the exchange, the caller decides; the previous one fired in time —
+          ``old='triggered'`` with the new one ``created``;
+        - ``cancel_first`` — cancel, then the new one (a window without a stop — the time of one request): Binance
+          ``closePosition=true`` without a new size (one per side, -4130), Gate / MEXC / HTX (two TP/SL per
+          position not verified). The new one is placed only if the old one is definitely gone; the new one
+          rejected — the previous trigger is placed again (``restored``).
 
         Returns :class:`~bytx.protection.TpSlModifyResult`: ``old`` canceled | alive |
         triggered | unknown, ``new`` created | unknown | rejected | None, ``order``: the new order.
@@ -2455,6 +2726,58 @@ class Exchange:
             raise InvalidOrder(f'no price for {s}: pass price', exchange=self.name)
         return float(price)
 
+    async def _trigger_price(self, s: str, trigger_by: Optional[str] = None, *, mark: Optional[float] = None) -> float:
+        """The price the exchange compares the TP/SL trigger with: ``trigger_by`` 'mark' / 'last' (None — the exchange
+        default, as in :meth:`set_tp_sl`). mark — the caller's ``mark`` (position mark), otherwise the ticker (WS cache,
+        then REST); the ticker lacks the needed price — its other one, then the reference price
+        (:meth:`_reference_price`)."""
+        from bytx.exchanges import tp_sl_trigger_by
+        by = trigger_by or tp_sl_trigger_by(self._ex.id)
+        if by == 'mark' and mark:
+            return float(mark)
+        streams = getattr(self, '_streams', None)
+        t = streams.last_ticker(s) if streams is not None else None
+        if t is None and self._ex.id == 'hyperliquid':
+            # HL REST ticker is fetch_tickers of all markets (weight 20+20): the reference price — WS cache / one l2Book
+            return await self._reference_price(s, None)
+        if t is None:
+            t = await self.ticker(s)
+        price = (t.mark or t.last) if by == 'mark' else (t.last or t.mark)
+        return float(price) if price else await self._reference_price(s, None)
+
+    def _spot_quote_buy(self, s: str, m: Any, notional: float, ref_price: Optional[float]) -> Optional[dict]:
+        """Spot market buy for a quote amount with the exchange's own parameter: Binance ``quoteOrderQty``
+        (if ``quoteOrderQtyMarketAllowed``), Bybit ``marketUnit=quoteCoin``, OKX ``tgtCcy=quote_ccy``, KuCoin
+        ``funds``. The amount is rounded down to the quote step (Binance quoteAssetPrecision, Bybit quotePrecision,
+        KuCoin quoteIncrement); below the minimum cost (NOTIONAL / minOrderAmt / minFunds, quoteMinSize) or, on OKX
+        without a minimum cost, below ``minSz`` at the reference price — :class:`OrderTooSmall`. Other exchanges —
+        None (converted to base)."""
+        info = m.raw.get('info') or {}
+        ex_id = self._ex.id
+        if ex_id not in ('binance', 'bybit', 'okx', 'kucoin') or \
+                (ex_id == 'binance' and info.get('quoteOrderQtyMarketAllowed') is False):
+            return None
+        step = {'binance': (m.raw.get('precision') or {}).get('quote'),
+                'bybit': (info.get('lotSizeFilter') or {}).get('quotePrecision'),
+                'kucoin': info.get('quoteIncrement')}.get(ex_id)
+        quote = Decimal(str(notional))
+        if step and Decimal(str(step)) > 0:
+            quote = (quote / Decimal(str(step))).to_integral_value(rounding=ROUND_DOWN) * Decimal(str(step))
+        minimum = max([float(x) for x in (m.min_cost, info.get('quoteMinSize') if ex_id == 'kucoin' else None)
+                       if x], default=0.0)
+        if quote <= 0 or quote < Decimal(str(minimum)):
+            raise OrderTooSmall(f'amount {notional} is below the minimum {minimum} or the step {step} ({s})',
+                                exchange=self.name, details={'symbol': s, 'notional': notional})
+        if ex_id == 'okx' and m.min_amount and ref_price and float(quote) / ref_price < m.min_amount:
+            raise OrderTooSmall(f'amount {notional} at price {ref_price} is below minSz {m.min_amount} ({s})',
+                                exchange=self.name, details={'symbol': s, 'notional': notional})
+        out: dict = {'cost': format(quote.normalize(), 'f')}
+        if ex_id == 'bybit':
+            out['marketUnit'] = 'quoteCoin'
+        elif ex_id == 'okx':
+            out['tgtCcy'] = 'quote_ccy'
+        return out
+
     async def _build_order(self, symbol: str, side: Side, *, size: Optional[float] = None,
                            notional: Optional[float] = None, contracts: Optional[float] = None,
                            margin: Optional[float] = None, leverage: Optional[float] = None,
@@ -2463,7 +2786,7 @@ class Exchange:
                            reduce_only: bool = False, client_id: Optional[str] = None,
                            take_profit: Optional[float] = None, stop_loss: Optional[float] = None,
                            params: Optional[dict] = None, position_margin_mode: Optional[str] = None,
-                           journal_role: Optional[str] = None) -> dict:
+                           journal_role: Optional[str] = None, max_round_up: Optional[float] = None) -> dict:
         """Order request without sending. ``position_margin_mode``: margin mode of the open position
         (close/reduce): used to close if the symbol's mode is not set explicitly."""
         if side not in ('buy', 'sell'):
@@ -2494,8 +2817,14 @@ class Exchange:
         if ref_price is None and (needs_ref or (m.min_cost and not reduce_only)):
             ref_price = await self._reference_price(s, side)
 
-        if margin is not None:
-            amount = self._margin_contracts(s, m, side, margin, leverage, price, ref_price, order_type)
+        quote_params = (self._spot_quote_buy(s, m, notional, ref_price)
+                        if notional is not None and order_type == 'market' and side == 'buy'
+                        and self.market_type == 'spot' else None)
+        if quote_params is not None:
+            amount = notional / ref_price  # type: ignore[operator]  # estimate: the exchange sizes by the amount
+        elif margin is not None:
+            amount = self._margin_contracts(s, m, side, margin, leverage, price, ref_price, order_type,
+                                            max_round_up=max_round_up)
         elif contracts is not None:
             # round down to the step, like size: ccxt hyperliquid rounds to the nearest, and below one step
             # ccxt raises its own InvalidOrder
@@ -2503,10 +2832,15 @@ class Exchange:
         else:
             base = size if size is not None else notional / ref_price  # type: ignore[operator]
             amount = convert.contracts_from_size(self._ex, m, base)
-        if amount <= 0 or (m.min_amount and amount < m.min_amount):
+        if order_type == 'market' and self._ex.id == 'binance' and quote_params is None:
+            from bytx.exchanges.binance.limits import apply_market_lot
+            amount = apply_market_lot(m.raw, amount)
+        if quote_params is not None:
+            pass  # quote minimums are checked in _spot_quote_buy
+        elif amount <= 0 or (m.min_amount and amount < m.min_amount):
             raise OrderTooSmall(f'size {amount} contracts is below the minimum {m.min_amount} ({s})',
                                 exchange=self.name)
-        if not reduce_only and m.min_cost and ref_price:
+        elif not reduce_only and m.min_cost and ref_price:
             cost = amount * m.contract_size * ref_price
             if cost < m.min_cost:
                 raise OrderTooSmall(f'notional {cost:.4f} is below the minimum {m.min_cost} ({s})',
@@ -2580,6 +2914,8 @@ class Exchange:
                                                 tag=self.client_id_prefix)
             if attach_cid is not None:
                 p['attachAlgoClOrdId'] = attach_cid
+        if quote_params:
+            p.update(quote_params)
         if params:
             p.update(params)
         if self.risk is not None:  # client-side risk guard before sending
@@ -2741,7 +3077,8 @@ class Exchange:
                       protect: bool = True, adopt_untracked: bool = True,
                       symbols: Optional[Iterable[str]] = None,
                       prune_after: Optional[float] = 7 * 86400.0,
-                      cancel_orphaned: bool = True) -> 'RecoveryReport':
+                      cancel_orphaned: bool = True, cancel_orphaned_algos: bool = True,
+                      protect_max_age: Optional[float] = 86400.0) -> 'RecoveryReport':
         """Reconciles the intent store (``intents=``) with the exchange at process start.
 
         Live intent orders are picked up, finished ones are marked, missing ones are
@@ -2750,13 +3087,21 @@ class Exchange:
         and nothing is sent. Missing entry TP/SL (Binance/HL, open_position stop plan,
         attached and separate) are placed after reconciling with the exchange's open TP/SL (``protect``): if one already exists,
         no second one is placed. Your own orphaned TP/SL (no position on that side, re-read before cancelling)
-        are canceled (``cancel_orphaned``; foreign ones never). Details: :func:`bytx.recovery.recover`.
-        Without a store, raises :class:`ConfigError`.
+        are canceled (``cancel_orphaned``; foreign ones never). Working orders of unfinished ``ex.algos`` algorithms
+        (the process died in the middle of chase / twap / iceberg / bracket …) are canceled, position protection (the
+        algorithm's TP/SL) stays, what was filled is not touched — ``report.algos`` (``cancel_orphaned_algos``;
+        algorithms are not resumed). A bracket that died between the entry and its legs gets the missing legs from the
+        protection plan written before the entry (``protect``; the plan side's position exists, size — the filled
+        one, no more than the position; a price past the trigger — the leg is not placed, the position is not closed;
+        a plan older than ``protect_max_age`` is not applied): ``report.algos[i].protection`` / ``protected``,
+        positions without a stop — ``report.unprotected``. Details: :func:`bytx.recovery.recover`. Without a store,
+        raises :class:`ConfigError`.
         """
         from bytx.recovery import recover
         return await recover(self, resubmit=resubmit, max_age=max_age, settle=settle, protect=protect,
                              adopt_untracked=adopt_untracked, symbols=symbols, prune_after=prune_after,
-                             cancel_orphaned=cancel_orphaned)
+                             cancel_orphaned=cancel_orphaned, cancel_orphaned_algos=cancel_orphaned_algos,
+                             protect_max_age=protect_max_age)
 
     # ─── portfolio, key check, exchange health ─────────────────────
 
@@ -2764,8 +3109,10 @@ class Exchange:
                              symbols: Optional[Iterable[str]] = None, keep_items: bool = False) -> 'AccountReport':
         """Account portfolio over ``[since, until]`` (ms): equity, unrealized PnL of positions,
         realized PnL, fees and funding from the exchange's ledger (per docs, parsed natively).
-        Incomplete data gives ``complete=False`` with reasons in ``issues`` (not an exception). Details:
-        :mod:`bytx.portfolio`; across all accounts: :meth:`AccountPool.portfolio`."""
+        Incomplete data gives ``complete=False`` with reasons in ``issues`` (not an exception). ``symbols=`` —
+        a report for these symbols (ledger, positions, unrealized PnL; equity — of the whole account); the symbol of
+        ledger records is the SDK symbol. Details: :mod:`bytx.portfolio`; across all accounts:
+        :meth:`AccountPool.portfolio`."""
         from bytx.portfolio import account_report
         return await account_report(self, since=since, until=until, symbols=symbols, keep_items=keep_items)
 
@@ -2925,8 +3272,13 @@ class Exchange:
                                    position_id=position_id)
 
     def _margin_contracts(self, s: str, m: Market, side: Side, margin: float, leverage: Optional[float],
-                          price: Optional[float], ref_price: Optional[float], order_type: str) -> float:
-        """``place_order(margin=)``: contracts at the execution price, or OrderTooSmall."""
+                          price: Optional[float], ref_price: Optional[float], order_type: str,
+                          max_round_up: Optional[float] = None) -> float:
+        """``place_order(margin=)``: contracts at the execution price, or OrderTooSmall.
+
+        A size below the minimum lot is rounded up to the minimum. ``max_round_up`` — how many times the minimum lot
+        may exceed the requested size: more — :class:`OrderTooSmall` (``details``: ``requested``, ``min`` —
+        contracts); None — no cap (the default), but a WARNING at 2× and more (5 USDT of margin on BTC → 100 USDT)."""
         known = self._leverage.get(s)
         if leverage is not None and known is not None and float(leverage) != float(known):
             # margin is computed with one leverage, but the position would open with another: wrong size
@@ -2946,6 +3298,24 @@ class Exchange:
         if contracts is None:
             raise OrderTooSmall(f'margin {margin} × leverage {lev} at price {exec_price} is below the minimum lot ({s})',
                                 exchange=self.name, details={'symbol': s, 'margin': margin, 'leverage': lev})
+        raw = m.raw if isinstance(m.raw, dict) else {}
+        try:
+            requested = float(margin) * float(lev) / (float(exec_price) * float(raw.get('contractSize') or 1.0))
+        except (TypeError, ValueError, ZeroDivisionError):
+            requested = 0.0
+        if requested > 0 and contracts > requested * (1 + 1e-9):
+            ratio = contracts / requested
+            details = {'symbol': s, 'margin': margin, 'leverage': lev, 'requested': requested, 'min': contracts,
+                       'ratio': ratio}
+            if max_round_up is not None and ratio > float(max_round_up):
+                raise OrderTooSmall(f'margin {margin} × leverage {lev}: {requested:g} contracts is below the minimum '
+                                    f'lot {contracts:g} by {ratio:.1f}x (max_round_up={max_round_up}) ({s})',
+                                    exchange=self.name, details=details)
+            if ratio >= 2:
+                from loguru import logger
+                logger.warning(f'{self.name}: margin={margin} × {lev} on {s}: {requested:g} contracts rounded up to '
+                               f'the minimum lot {contracts:g} — {ratio:.1f}x the requested size '
+                               f'(cap it with place_order(max_round_up=…))')
         # snap to the exchange step grid (for a step that is not a power of 10, Decimal.quantize misses the grid)
         return convert.contracts_to_precision(self._ex, m, contracts)
 
@@ -3125,6 +3495,8 @@ class Exchange:
         kind = classify_outcome(self._ex.id, error, has_client_id=bool(request.get('client_id')))
         if kind == 'rejected':
             typed = position_error(self._ex.id, error, reduce_only=bool(request.get('reduce_only')))
+            if isinstance(typed, PositionAlreadyClosed) and request.get('reduce_only'):
+                return await self._verify_position_closed(request, typed)
             return typed or error
         if not reconcile:
             return self._status_unknown(request, error, 'reconciliation disabled (reconcile=False)')
@@ -3138,6 +3510,43 @@ class Exchange:
         reason = ('order not found by client_id within the reconciliation window' if scan_error is None
                   else f'reconciliation failed: {scan_error.message or scan_error}')
         return self._status_unknown(request, error, reason)
+
+    async def _verify_position_closed(self, request: dict, typed: BytxError) -> BytxError:
+        """Reduce-only rejected with a "no position" code that also means "the side is covered by resting closing
+        orders" (POSITION_CLOSED_IF_REDUCE: Binance -2022, Bybit 110017, BingX 101212, HTX 1048) — the position is
+        re-read: open → :class:`PositionCovered`; none → PositionAlreadyClosed; read failure → InvalidOrder with
+        ``details['position_unverified']`` (not "closed"). Unambiguous "no position" codes are not re-read."""
+        from bytx.outcome import position_close_ambiguous
+        if not position_close_ambiguous(self._ex.id, typed):
+            return typed
+        s = request['symbol']
+        side = 'long' if request.get('side') == 'sell' else 'short'   # a reduce-only sell reduces a long
+        try:
+            rows = await self.positions([s])
+        except BytxError as read_error:
+            details = dict(typed.details) if isinstance(typed.details, dict) else {}
+            details.update(symbol=s, side=side, position_unverified=True)
+            unverified = InvalidOrder(f'{typed.message or typed} — the position was not read after the rejection '
+                                      f'({read_error.message or read_error}): whether it is closed is unknown',
+                                      exchange=self.name, code=typed.code, details=details)
+            unverified.__cause__ = read_error
+            return unverified
+        # hedge — only its own side; one-way — any non-zero position of the symbol
+        open_rows = [p for p in rows if p.symbol == s and (p.contracts or 0) > 0
+                     and (p.side == side or not p.hedged)]
+        if not open_rows:
+            return typed
+        contracts = sum(float(p.contracts or 0) for p in open_rows)
+        from loguru import logger
+        logger.error(f'{self.name}: close rejected: {s} {side} covered by resting reduce orders ({typed.code}) '
+                     f'contracts={contracts}')
+        covered = PositionCovered(
+            f'position {s} {side} is open ({contracts} contracts), but the exchange answered "no position": '
+            f'{typed.message or typed} — the side is covered by resting closing orders (cancel them and retry)',
+            exchange=self.name, code=typed.code,
+            details={'symbol': s, 'side': side, 'contracts': contracts, 'code': typed.code})
+        covered.__cause__ = typed
+        return covered
 
     def _status_unknown(self, request: dict, error: BytxError, reason: str) -> OrderStatusUnknown:
         """An "outcome unknown" error with order fields; ``__cause__`` is the create_order error."""

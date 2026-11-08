@@ -57,6 +57,7 @@ class AccountHub(_Hub):
         self.positions = None
         self._balance_sub = None
         self._balance: Optional[Balance] = None
+        self._balance_epoch = 0          # balance feed reconnects at the time the value was received
         self._balance_task: Optional[asyncio.Task] = None
 
     async def _start(self) -> None:
@@ -81,6 +82,7 @@ class AccountHub(_Hub):
         try:
             async for b in self._balance_sub:
                 self._balance = b
+                self._balance_epoch = self._balance_feed_epoch()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -110,7 +112,21 @@ class AccountHub(_Hub):
         """Position; ``None`` — stream not current. Empty position — Position with size 0 or no record."""
         return self.positions.get(symbol, side) if self.positions_live else None
 
+    def _balance_feed_epoch(self) -> int:
+        feed = getattr(self._balance_sub, 'feed', None)
+        return int(getattr(getattr(feed, 'stats', None), 'reconnects', 0) or 0)
+
     def balance(self) -> Optional[Balance]:
+        """Balance from the stream or None — the stream is not current: disconnected / reconnecting / stale / stopped,
+        or the value was received before the last reconnect (coins may have changed during the gap)."""
+        if self._balance is None:
+            return None
+        feed = getattr(self._balance_sub, 'feed', None)
+        state = getattr(getattr(feed, 'stats', None), 'state', None)
+        if state in ('disconnected', 'reconnecting', 'stale', 'stopped', 'idle'):
+            return None
+        if self._balance_epoch != self._balance_feed_epoch():
+            return None
         return self._balance
 
     async def _close(self) -> None:

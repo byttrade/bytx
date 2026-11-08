@@ -15,14 +15,17 @@ A slice executes as ``slice_type``:
 
 Each slice catches up on **schedule lag**: the target for slice i is the cumulative share of size
 minus what is already filled (underfill from earlier slices is not lost, no overfill). A slice below
-the exchange's minimum size accumulates into the next. Pause shifts the remaining schedule by the pause duration.
+the exchange's minimum order (step, ``min_amount``, minimum notional ``min_cost`` at the current price; for
+reduce-only — without the notional) accumulates into the next; a tail below the minimum that would remain after a
+slice goes into that slice. The whole ``size`` below the minimum order — ``OrderTooSmall`` ('failed').
+Pause shifts the remaining schedule by the pause duration.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from bytx.algos.base import algo_rng, EPS, TERMINAL_ORDER, ExecAlgo, check_positive
-from bytx.algos.market import available_within, cap_price
+from bytx.algos.market import available_within
 from bytx.errors import ConfigError, InvalidOrder
 from bytx.types import Order, Side
 
@@ -75,23 +78,30 @@ class TWAP(ExecAlgo):
 
     async def _run(self) -> None:
         self.target = self._round_size(self.size)
-        min_size = max(self._min_size(), EPS)
+        self._check_target(await self._min_order(reduce_only=self.reduce_only), reduce_only=self.reduce_only)
         start = self.clock.now_ms()
         self.extra.update(slices_done=0, schedule_ms=list(self.offsets_ms))
         for i in range(self.slices):
             await self._wait_until(start + self.offsets_ms[i])
             await self._close_resting()
+            # slice minimum — step, min_amount and the minimum notional at the current price: a smaller slice
+            # accumulates into the next one; a tail below the minimum after the slice goes into it
+            min_size = await self._min_order(reduce_only=self.reduce_only)
             want = self._round_size(self.target * self.cum_share[i] - self.filled)
             if want >= min_size:
-                await self._slice(want, last=False)
+                await self._slice(self._tail_merged(want, self._round_size(self.target - self.filled), min_size),
+                                  last=False)
             self.extra['slices_done'] = i + 1
         if self.slice_type == 'limit':
             await self._wait_until(start + int(self.slices * self._interval_ms))
             await self._close_resting()
             left = self._round_size(self.target - self.filled)
-            if left >= min_size:
+            if left >= await self._min_order(reduce_only=self.reduce_only):
                 await self._slice(left, last=True)
         left = self._round_size(self.target - self.filled)
+        min_size = await self._min_order(reduce_only=self.reduce_only) if left > EPS else EPS
+        if left < min_size:
+            self._below_min(left)
         self._stop('filled' if left < min_size else 'partial')
 
     async def _wait_until(self, t_ms: int) -> None:
@@ -108,13 +118,12 @@ class TWAP(ExecAlgo):
 
     async def _close_resting(self) -> None:
         """An unfilled limit slice is canceled before the next one (the remainder rolls into it)."""
-        while self._resting is not None:
-            done = await self._cancel_child(self._resting)
-            if done is not None:
-                self._resting = None
-                return
-            await self._sleep(self.poll)     # status unclear: do not place a new slice
-            await self._gate()
+        if self._resting is not None:
+            if await self._cancel_child(self._resting) is None:
+                # status unclear — no new slice; no final state within max_errors poll pauses — 'cancel_unconfirmed'
+                # (it used to be an endless cancel loop)
+                await self._await_final(self._resting)
+            self._resting = None
 
     async def _slice(self, size: float, *, last: bool) -> None:
         side: Side = self.side  # type: ignore[assignment]
@@ -140,7 +149,7 @@ class TWAP(ExecAlgo):
         else:
             book = await self._book()
             best = book.best_ask if side == 'buy' else book.best_bid
-            limit = self._round_price(cap_price(best[0], side, self.max_slippage_bps), side) if best else 0.0
+            limit = await self._cap_limit(best[0], self.max_slippage_bps) if best else 0.0
             if best is None or available_within(book, side, limit) <= EPS:
                 self.extra['skipped'] = self.extra.get('skipped', 0) + 1
                 return

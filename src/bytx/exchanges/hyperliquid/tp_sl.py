@@ -19,6 +19,13 @@ OCO = ('emulated', 'https://hyperliquid.gitbook.io/hyperliquid-docs/for-develope
 ATTACHED_SL = (False, 'https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint',
                True, 'grouping na — SL as a separate order after entry')
 
+# Moving a TP/SL (modify_tp_sl): reduce-only trigger orders with a size coexist (testnet 2026-10-28: a new TP/SL
+# before canceling the old one) — make-before-break. The SDK doesn't use the Exchange endpoint ``modify`` action: not
+# verified on testnet.
+MODIFY_IN_PLACE = None
+TWO_SL = (True, 'https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint', True,
+          'reduce-only triggers with a size coexist (testnet 2026-10-28)')
+
 
 # status (info orderStatus / historicalOrders, value table in the «Query order status» docs): open |
 # filled | triggered | canceled | rejected | …Canceled | …Rejected | scheduledCancel

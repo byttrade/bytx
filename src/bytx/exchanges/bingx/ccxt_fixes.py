@@ -352,31 +352,49 @@ def _keep_ws_urls_on_demo(ex: Any) -> None:
 VST_WS = 'wss://vst-open-api-ws.bingx.com/swap-market'
 
 
+#: VST: GETs of the `account` section that VST serves on the production paths (demo 2026-11-04, check_key):
+#: «Query API KEY Permissions» (/openApi/v1/account/apiPermissions) and «Query Account UID» (/openApi/account/v1/uid)
+VST_ACCOUNT_READS = frozenset({'account/apiPermissions', 'uid'})
+
+
+def _vst_section(section: Any, path: str, method: str) -> bool:
+    """A ccxt section that goes to the VST swap host on VST: `user` (listenKey) and the reads of :data:`VST_ACCOUNT_READS`."""
+    if not section:
+        return False
+    if section[0] == 'user':
+        return True
+    return section[0] == 'account' and str(method).upper() == 'GET' and path in VST_ACCOUNT_READS
+
+
 def _allow_listen_key_on_demo(ex: Any) -> None:
-    """VST: listenKey for private streams (POST /openApi/user/auth/userDataStream) — on VST REST.
+    """VST: listenKey for private streams (POST /openApi/user/auth/userDataStream) and key permissions / UID
+    (check_key) — on VST REST.
 
     ccxt 4.4.65 `sign` in sandbox rejects everything except `swap` («does not have a testnet/sandbox URL
-    for user endpoints») — private WS streams never started on demo. VST issues a listenKey
-    on the same path (checked 2026-10-28). Only the `user` section, and only on the VST swap host.
+    for user endpoints») — private WS streams never started on demo, and check_key didn't know the key
+    permissions (can_withdraw=None). VST issues a listenKey on the same path (checked 2026-10-28), key permissions
+    and UID too (2026-11-04). Only the `user` section and the reads of :data:`VST_ACCOUNT_READS`, and only on the
+    VST swap host.
     """
     original = ex.sign
 
     def sign(path, section='public', method='GET', params={}, headers=None, body=None):
         api = ex.urls.get('api') or {}
-        if not (ex.safe_bool(ex.options, 'sandboxMode', False) and section and section[0] == 'user'
+        if not (ex.safe_bool(ex.options, 'sandboxMode', False) and _vst_section(section, path, method)
                 and isinstance(api, dict) and 'swap' in api):
             return original(path, section, method, params, headers, body)
-        had, previous = 'user' in api, api.get('user')
-        api['user'] = api['swap']
+        name = section[0]
+        had, previous = name in api, api.get(name)
+        api[name] = api['swap']
         ex.options['sandboxMode'] = False      # sign is synchronous: the swap doesn't overlap other requests
         try:
             return original(path, section, method, params, headers, body)
         finally:
             ex.options['sandboxMode'] = True
             if had:
-                api['user'] = previous
+                api[name] = previous
             else:
-                api.pop('user', None)
+                api.pop(name, None)
 
     ex.sign = sign
 
@@ -482,6 +500,24 @@ def _add_watch_positions(exchange: Any) -> None:
     exchange.has = dict(exchange.has, watchPositions=True)
 
 
+# Codes of the docs-v3 table (Error codes, Perpetual Futures; verified 2026-11-04, fixture
+# tests/ground_truth/bingx/demo_error_codes.json) that ccxt 4.4.65 exceptions don't have:
+# 101215 «Post Only order was cancelled because it would have been filled immediately» — post-only rejection
+# (ccxt — a bare ExchangeError: chase did not recognize the «bounce», place_order went to outcome reconciliation);
+# 109421 «The specified order does not exist — it may have been filled, cancelled, or the order ID is
+# incorrect» — on Query Order too (VST: right after a fill, demo 2026-11-04);
+# 100410 — request frequency limit («Request frequency too high, rate limit triggered…»; ccxt —
+# OperationFailed, i.e. «outcome unknown», although the request was not accepted).
+EXACT_ERRORS = {'101215': ccxt.OrderImmediatelyFillable, '109421': ccxt.OrderNotFound,
+                '100410': ccxt.RateLimitExceeded}
+
+
+def _fix_exceptions(exchange: Any) -> None:
+    exceptions = dict(exchange.exceptions or {})
+    exceptions['exact'] = {**(exceptions.get('exact') or {}), **EXACT_ERRORS}
+    exchange.exceptions = exceptions
+
+
 def apply(exchange: Any) -> None:
     """ccxt bingx instance patches (repeated call is a no-op)."""
     if getattr(exchange, _APPLIED, False):
@@ -498,6 +534,7 @@ def apply(exchange: Any) -> None:
     _keep_ws_urls_on_demo(exchange)
     _allow_listen_key_on_demo(exchange)
     _fix_cancel_replace(exchange)
+    _fix_exceptions(exchange)
 
 
 __all__ = ['apply']

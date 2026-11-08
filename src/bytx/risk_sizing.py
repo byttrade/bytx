@@ -556,7 +556,9 @@ async def _protect(ex: 'Exchange', s: str, pos_side: PositionSide, plan: RiskPla
         except BytxError as e:
             details['close_error'] = e
     if details['rolled_back'] and store is not None and cid:
-        store._on_protected(ex, cid)   # no position — nothing to protect; otherwise recover() retries the stop
+        store._on_protected(ex, cid)   # no position — nothing to protect
+    elif store is not None and cid:
+        store._retire_plan(ex, cid, 'protection_failed')   # the failure is reported to the caller
     what = ('position closed (rolled back)' if details['rolled_back']
             else 'position LEFT without a stop' + (f': rollback failed ({details["close_error"]})'
                                                    if details['close_error'] else ''))

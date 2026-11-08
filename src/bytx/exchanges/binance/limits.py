@@ -24,6 +24,31 @@ def lot_rules(market: dict) -> tuple[Optional[float], Optional[float]]:
     return None, None
 
 
+def apply_market_lot(market: dict, amount: float) -> float:
+    """MARKET order: ``MARKET_LOT_SIZE`` (filters.md: quantity ≥ minQty, ≤ maxQty, a multiple of stepSize; MARKET only).
+
+    The size goes down to ``stepSize`` (0 — no step rule); below ``minQty`` — :class:`OrderTooSmall`, above
+    ``maxQty`` — :class:`InvalidOrder`, before sending. No filter — the size as is.
+    """
+    from decimal import ROUND_DOWN, Decimal
+
+    from bytx.errors import InvalidOrder, OrderTooSmall
+    f = next((f for f in _filters(market) if f.get('filterType') == 'MARKET_LOT_SIZE'), None)
+    if f is None:
+        return amount
+    step, low, high = (Decimal(str(f.get(k) or 0)) for k in ('stepSize', 'minQty', 'maxQty'))
+    value = Decimal(str(amount))
+    if step > 0:
+        value = (value / step).to_integral_value(rounding=ROUND_DOWN) * step
+    symbol = market.get('symbol')
+    if value <= 0 or (low > 0 and value < low):
+        raise OrderTooSmall(f'size {amount} is below MARKET_LOT_SIZE (minQty {low}, stepSize {step}) ({symbol})',
+                            exchange='binance')
+    if high > 0 and value > high:
+        raise InvalidOrder(f'size {amount} is above MARKET_LOT_SIZE.maxQty {high} ({symbol})', exchange='binance')
+    return float(value)
+
+
 def min_cost(market: dict) -> Optional[float]:
     """``MIN_NOTIONAL.minNotional`` (only it; futures ``notional`` is
     already in ``limits.cost.min`` via ccxt)."""

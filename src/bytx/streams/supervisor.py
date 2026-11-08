@@ -312,6 +312,7 @@ class FeedSpec:
     check: Optional[Callable[[list, 'Feed'], None]] = None   # integrity check → Resync
     on_reconnect: Optional[Callable[['Feed'], None]] = None  # reset local state
     unwatch: Optional[Callable[[], Awaitable[Any]]] = None   # topic unsubscribe (ccxt un_watch_*)
+    close: Optional[Callable[[], Any]] = None    # Feed stop: release its own resources (OKX merged-watch pumps)
 
     @property
     def name(self) -> str:
@@ -613,6 +614,11 @@ class Feed:
         if self._task is not None and not self._task.done():
             self._stopping = True
             self._task.cancel()
+        if self.spec.close is not None:
+            try:
+                self.spec.close()
+            except Exception as e:  # noqa: BLE001 — release is best effort
+                logger.debug(f'{self.hub.name} {self.name}: spec close: {e!r}')
         self.stats.state = 'idle' if self.error is None else 'stopped'
         self.hub._feed_stopped(self)
 

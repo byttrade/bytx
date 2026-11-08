@@ -13,8 +13,11 @@ of the last 500 (a bot runs for weeks) yields OrderNotFound, and a filled level 
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
+from loguru import logger
+
+from bytx.errors import ExchangeError
 from bytx.exchanges.bybit.leverage import category
 
 # lookup order: open and last 500 closed → history
@@ -52,9 +55,10 @@ OPEN_PAGE_LIMIT = 50
 OPEN_MAX_PAGES = 40                      # 2000 orders per symbol — plenty; a hard stop instead of an endless loop
 
 
-def open_request(market: dict, cursor: Optional[str] = None) -> dict:
-    """Request params for one page of the symbol's open orders."""
-    req: dict = {'category': category(market), 'symbol': market['id'], 'limit': OPEN_PAGE_LIMIT}
+def open_request(market: dict, cursor: Optional[str] = None, params: Optional[dict] = None) -> dict:
+    """Request params for one page of the symbol's open orders; ``params`` — docs filters (``orderFilter``,
+    ``openOnly``)."""
+    req: dict = {**(params or {}), 'category': category(market), 'symbol': market['id'], 'limit': OPEN_PAGE_LIMIT}
     if cursor:
         req['cursor'] = cursor
     return req
@@ -67,6 +71,111 @@ def open_page(response: Any) -> tuple[list[dict], Optional[str]]:
         return [], None
     rows = [r for r in result.get('list') or [] if isinstance(r, dict)]
     return rows, result.get('nextPageCursor') or None
+
+
+async def open_rows(fetch_page: Callable[[dict], Awaitable[Any]], market: dict,
+                    params: Optional[dict] = None) -> list[dict]:
+    """All rows of the symbol's open orders: ``open_request`` pages along the ``nextPageCursor`` cursor.
+
+    ``fetch_page(request)`` — one GET /v5/order/realtime (through the client's limiter). Shared walk for
+    ``Exchange.open_orders`` and ``protection.tp_sl_orders``. Rows with an already seen ``orderId`` are dropped.
+    The end — an empty cursor, a page without new rows or an incomplete page (fewer than ``limit`` — «Limit for data
+    size per page»): Bybit returns a cursor on the last page too (the docs example — one row and a non-empty
+    ``nextPageCursor``); without this condition every list would cost an extra request. ``OPEN_MAX_PAGES`` — a cut-off:
+    ExchangeError (an incomplete list is not passed off as complete), not an endless loop.
+    """
+    rows: list[dict] = []
+    seen: set[str] = set()
+    cursor: Optional[str] = None
+    for _ in range(OPEN_MAX_PAGES):
+        page, cursor = open_page(await fetch_page(open_request(market, cursor, params)))
+        new = [r for r in page if str(r.get('orderId')) not in seen]
+        seen.update(str(r.get('orderId')) for r in new)
+        rows += new
+        if not cursor or not new or len(page) < OPEN_PAGE_LIMIT:
+            return rows
+    raise _truncated(f'order/realtime {market.get("id")}', OPEN_MAX_PAGES, OPEN_PAGE_LIMIT)
+
+
+def _truncated(what: str, pages: int, limit: int) -> ExchangeError:
+    """The page walk was cut off at ``pages``: an incomplete list is not passed off as complete — an exception."""
+    msg = f'bybit {what}: the cursor did not end within {pages} pages of {limit} — the list is incomplete'
+    logger.error(msg)
+    return ExchangeError(msg, exchange='bybit', details={'pages': pages, 'limit': limit})
+
+
+# Account lists without a symbol — pages via the ccxt request (ccxt builds ``category`` / ``settleCoin`` and parses the
+# rows itself), the docs limit and cursor — in ``params``. ccxt puts the response cursor into ``info`` of the first row
+# (``add_pagination_cursor_to_result``) — it is taken from there.
+# «Get Position Info» (GET /v5/position/list): «limit [1, 200]. Default: 20», ``cursor`` ← ``nextPageCursor``.
+POSITIONS_PAGE_LIMIT = 200
+
+
+def position_key(p: dict) -> tuple:
+    """A position in the account list: symbol, positionIdx (hedge — two rows per symbol), side."""
+    return (p.get('symbol'), (p.get('info') or {}).get('positionIdx'), p.get('side'))
+
+
+def ccxt_cursor(items: Any) -> Optional[str]:
+    """Next page cursor from a list parsed by ccxt (``info.nextPageCursor``) or None."""
+    for item in items if isinstance(items, list) else []:
+        info = item.get('info') if isinstance(item, dict) else None
+        if isinstance(info, dict) and info.get('nextPageCursor'):
+            return str(info['nextPageCursor'])
+    return None
+
+
+async def ccxt_pages(fetch_page: Callable[[dict], Awaitable[Any]], page_limit: int, key: Callable[[dict], Any],
+                     what: str, max_pages: Optional[int] = None) -> list[dict]:
+    """All pages of a ccxt list: ``fetch_page({'limit': page_limit, 'cursor': …})`` — one request (through the
+    caller's limiter). The end — as in :func:`open_rows`: an empty cursor, a page without new rows (``key``) or an
+    incomplete page; ``max_pages`` — cut-off: ExchangeError."""
+    max_pages = max_pages or OPEN_MAX_PAGES
+    out: list[dict] = []
+    seen: set = set()
+    cursor: Optional[str] = None
+    for _ in range(max_pages):
+        params: dict = {'limit': page_limit}
+        if cursor:
+            params['cursor'] = cursor
+        page = [r for r in (await fetch_page(params) or []) if isinstance(r, dict)]
+        cursor = ccxt_cursor(page)
+        new = [r for r in page if key(r) not in seen]
+        seen.update(key(r) for r in new)
+        out += new
+        if not cursor or not new or len(page) < page_limit:
+            logger.debug(f'bybit: {what} — {len(out)} rows')
+            return out
+    raise _truncated(what, max_pages, page_limit)
+
+
+def account_scopes(markets: Any, *, inverse: bool = True) -> list[dict]:
+    """Scopes of an account list without a symbol: per the docs linear without symbol requires ``settleCoin``: one per
+    settle currency of the linear swap markets (USDT, USDC); ``inverse`` — ``subType=inverse`` (category=inverse in
+    ccxt), if such markets are loaded. No markets — one ccxt default scope."""
+    rows = list((markets or {}).values()) if isinstance(markets, dict) else []
+    coins = sorted({str(m.get('settleId') or m.get('settle')) for m in rows
+                    if m.get('linear') and m.get('swap') and (m.get('settleId') or m.get('settle'))})
+    scopes: list[dict] = [{'settleCoin': c} for c in coins]
+    if inverse and any(m.get('inverse') and m.get('swap') for m in rows):
+        scopes.append({'subType': 'inverse'})
+    return scopes or [{}]
+
+
+async def account_pages(fetch_page: Callable[[dict], Awaitable[Any]], markets: Any, page_limit: int,
+                        key: Callable[[dict], Any], what: str, *, inverse: bool = True) -> list[dict]:
+    """:func:`ccxt_pages` for every scope of :func:`account_scopes`; duplicates (``key``) are dropped."""
+    out: list[dict] = []
+    seen: set = set()
+    for scope in account_scopes(markets, inverse=inverse):
+        rows = await ccxt_pages(lambda p, scope=scope: fetch_page({**scope, **p}), page_limit, key,
+                                f'{what} {scope or ""}'.strip())
+        for r in rows:
+            k = key(r)
+            if k not in seen:
+                seen.add(k)
+                out.append(r)
+    return out
 
 
 # Own trades: «Get Trade History» (GET /v5/execution/list) — «limit: [1, 100]. Default: 50», cursor

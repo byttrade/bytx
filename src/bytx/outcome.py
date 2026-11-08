@@ -147,6 +147,14 @@ def position_error(exchange_id: str, error: BytxError, *, reduce_only: bool) -> 
     return typed
 
 
+def position_close_ambiguous(exchange_id: str, error: BaseException) -> bool:
+    """"No position" on a reduce-only by a code that also means "the side is fully covered by resting closing orders"
+    (``POSITION_CLOSED_IF_REDUCE``: Binance -2022, Bybit 110017, BingX 101212, HTX 1048) — the position must be
+    re-read. Unambiguous "no position" codes (``POSITION_CLOSED``) — False."""
+    table = codes_of(exchange_id)
+    return table is not None and bool(_codes(error) & getattr(table, 'POSITION_CLOSED_IF_REDUCE', frozenset()))
+
+
 def order_not_open(exchange_id: str, error: BaseException) -> bool:
     """Does a cancel reject mean "the order is no longer in the book" (filled, canceled or nonexistent)?
 

@@ -24,6 +24,11 @@ Reference — https://www.bitget.com/docs/classic/ (Classic Account, Futures/Spo
   demo 2026-10-26) — we subscribe with ``instId=default`` ourselves.
 - **Place Order** (futures and spot): ``force`` — ``ioc`` / ``fok`` / ``gtc`` / ``post_only``, ``tradeSide`` —
   ``open`` / ``close`` (lowercase); ccxt sends ``GTC``/``IOC``/``FOK`` and ``Open``/``Close``.
+- **Hedge: trade side** — ``side`` in hedge is the position direction (Place Order), closing a long is ``buy`` +
+  ``tradeSide close``: ccxt reported REST trades and WS closing orders as buys (demo 2026-11-04) — the trade side
+  comes from ``tradeSide``.
+- **Leverage** (Get Single Account) — the pocket of the symbol's mode: cross — ``crossedMarginLeverage`` (ccxt —
+  always isolated*).
 """
 from __future__ import annotations
 
@@ -136,6 +141,34 @@ def _fix_ws_order_book(exchange: Any) -> None:
         return result
 
     exchange.handle_order_book = handle_order_book
+
+
+def _fix_batch_cancel(exchange: Any) -> None:
+    """Futures Batch Cancel Orders (POST /api/v2/mix/order/batch-cancel-orders): ``data.successList`` and
+    ``data.failureList`` (orderId, clientOid, errorCode, errorMsg). ccxt 4.4.65 ``cancel_orders`` parses only
+    successList — an item rejection was lost (the SDK reported «no cancel response»; demo 2026-11-04: a removed limit
+    order — failureList with errorCode 40819 «The order does not exist!»). failureList records go into the response
+    with the exchange code (parsed by the SDK per item)."""
+    original = exchange.cancel_orders
+
+    async def cancel_orders(ids, symbol=None, params={}):
+        params = dict(params or {})
+        await exchange.load_markets()
+        market = exchange.market(symbol) if symbol is not None else None
+        if market is None or market['spot'] or exchange.safe_value_2(params, 'stop', 'trigger') \
+                or 'marginMode' in params:
+            return await original(ids, symbol, params)
+        product, rest = exchange.handle_product_type_and_params(market, params)
+        request = {'symbol': market['id'], 'productType': product,
+                   'orderIdList': [{'orderId': str(i)} for i in ids]}
+        response = await exchange.privateMixPostV2MixOrderBatchCancelOrders(exchange.extend(request, rest))
+        data = exchange.safe_dict(response, 'data', {})
+        rows = list(exchange.safe_list(data, 'successList', []))
+        rows += [dict(r, errorCode=r.get('errorCode') or 'failureList') for r in exchange.safe_list(data, 'failureList', [])
+                 if isinstance(r, dict)]
+        return exchange.parse_orders(rows, market)
+
+    exchange.cancel_orders = cancel_orders
 
 
 def _fix_batch_failure(exchange: Any) -> None:
@@ -255,8 +288,75 @@ def _fix_ws_positions(exchange: Any) -> None:
     exchange.handle_positions = handle_positions
 
 
+_CLOSE_TRADE_SIDES = ('reduce_close_', 'burst_close_', 'offset_close_', 'delivery_close_', 'dte_sys_adl_close_')
+
+
+def hedge_trade_side(info: Any) -> Any:
+    """Trade direction (buy / sell) of a hedge-mode order or trade; not hedge / no fields — None.
+
+    Place Order: ``side`` — «buy: Buy(one-way-mode); Long position direction(hedge-mode)», Batch Order: «For close
+    long, side fill in "buy"; tradeSide should be "close"». ``tradeSide`` (Get Order Detail / Fills / Order Channel):
+    open / close and ``*_close_long`` / ``*_close_short`` (liquidation, ADL, delivery — hedge). Closing a long is a sell.
+    """
+    if not isinstance(info, dict) or str(info.get('posMode') or '') != 'hedge_mode':
+        return None
+    side = str(info.get('side') or '').lower()
+    trade = str(info.get('tradeSide') or '').lower()
+    if trade.startswith(_CLOSE_TRADE_SIDES):
+        return 'sell' if trade.endswith('_long') else 'buy' if trade.endswith('_short') else None
+    if side not in ('buy', 'sell'):
+        return None
+    if trade == 'close':
+        return 'sell' if side == 'buy' else 'buy'
+    return side if trade == 'open' else None
+
+
+def _fix_hedge_sides(exchange: Any) -> None:
+    """Hedge: the response ``side`` is the position direction, a close trades the other way (``hedge_trade_side``).
+    ccxt 4.4.65: REST trades (Get Order Fill Details) — side as is (closing a long — buy; demo 2026-11-04),
+    WS Order Channel — side as is and without reduceOnly, a REST order — flipped only by reduceOnly. The WS Fill
+    Channel already sends the trade direction (closing a long — sell, demo 2026-11-04) — left alone."""
+    def wrap(name: str, *, reduce_only: bool) -> None:
+        original = getattr(exchange, name, None)
+        if original is None:
+            return
+
+        def parse(raw: Any, market: Any = None) -> Any:
+            result = original(raw, market)
+            side = hedge_trade_side(raw)
+            if side is not None and isinstance(result, dict):
+                result['side'] = side
+                if reduce_only and result.get('reduceOnly') is None and raw.get('reduceOnly') not in (None, ''):
+                    result['reduceOnly'] = str(raw['reduceOnly']).lower() == 'yes'
+            return result
+
+        setattr(exchange, name, parse)
+
+    wrap('parse_trade', reduce_only=False)
+    wrap('parse_order', reduce_only=True)
+    wrap('parse_ws_order', reduce_only=True)
+
+
+def _fix_leverage(exchange: Any) -> None:
+    """Get Single Account: the leverage of the symbol's mode pocket (``data.marginMode``) — cross:
+    ``crossedMarginLeverage`` for both sides, isolated: ``isolatedLongLever`` / ``isolatedShortLever``. ccxt 4.4.65
+    always returns isolated* (``exchanges.bitget.leverage``)."""
+    from bytx.exchanges.bitget.leverage import leverage_pocket
+
+    def parse_leverage(leverage: dict, market: Any = None) -> dict:
+        mode, long, short = leverage_pocket(leverage)
+        return {'info': leverage, 'symbol': (market or {}).get('symbol'), 'marginMode': mode,
+                'longLeverage': exchange.safe_integer({'v': long}, 'v'),
+                'shortLeverage': exchange.safe_integer({'v': short}, 'v')}
+
+    exchange.parse_leverage = parse_leverage
+
+
 def apply(exchange: Any) -> None:
     _fix_demo(exchange)
+    _fix_leverage(exchange)
+    _fix_hedge_sides(exchange)
+    _fix_batch_cancel(exchange)
     _fix_batch_failure(exchange)
     _fix_ws_order_book(exchange)
     _fix_market_step(exchange)

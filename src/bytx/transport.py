@@ -142,6 +142,33 @@ def _apply_demo(ex: Any, name: str, market_type: str, env: str = 'demo') -> None
         ex.set_sandbox_mode(True)
 
 
+# swap client: only the market types the SDK allows for swap, no currencies. Before: Binance swap — 6 requests on
+# connect (spot, margin, fapi, dapi, sapi capital), 4150 markets, 39 MiB; Bybit — spot, options, currencies; OKX —
+# SPOT, FUTURES, OPTION, currencies. User values in ``options`` take precedence (OKX dated futures —
+# options={'fetchMarkets': ['swap', 'future']}).
+SWAP_MARKET_OPTIONS: dict[str, dict[str, Any]] = {
+    'binance': {'fetchMarkets': ['linear', 'inverse'], 'fetchMargins': False, 'fetchCurrencies': False},
+    'bybit': {'fetchMarkets': ['linear', 'inverse']},
+    'okx': {'fetchMarkets': ['swap']},
+}
+#: for these exchanges ccxt loads currencies without an off switch: the instance's fetch_currencies → None (currencies
+#: come from the markets)
+_NO_CURRENCIES = frozenset({'bybit', 'okx'})
+
+
+def apply_swap_market_options(ex: Any, name: str, user_options: Optional[dict] = None) -> None:
+    """Market loading options of a swap client (:data:`SWAP_MARKET_OPTIONS`) on the instance; ``user_options`` — what
+    the user set (those values are left alone)."""
+    user = user_options or {}
+    for k, v in SWAP_MARKET_OPTIONS.get(name, {}).items():
+        if k not in user:
+            ex.options[k] = list(v) if isinstance(v, list) else v
+    if name in _NO_CURRENCIES and not user.get('fetchCurrencies'):
+        async def fetch_currencies(params: Any = None) -> None:
+            return None
+        ex.fetch_currencies = fetch_currencies
+
+
 def build_ccxt(name: str, *, market_type: str = 'swap', api_key: Optional[str] = None,
                secret: Optional[str] = None, password: Optional[str] = None,
                wallet_address: Optional[str] = None, private_key: Optional[str] = None,
@@ -180,10 +207,14 @@ def build_ccxt(name: str, *, market_type: str = 'swap', api_key: Optional[str] =
         config['options']['recvWindow'] = recv_window_ms
 
     ex = getattr(ccxtpro, ccxt_id)(config)
+    if market_type == 'swap':
+        apply_swap_market_options(ex, name, options)
     _apply_proxy(ex, proxy)
     # broker IDs — before sandbox
     apply_broker_ids(ex, broker)
     patch_hyperliquid_markets(ex)
+    if name == 'hyperliquid':
+        _install_hyperliquid_fast_paths(ex)
     patch_okx_instance(ex)
     if env is not None:
         _apply_demo(ex, name, market_type, env)
@@ -191,4 +222,14 @@ def build_ccxt(name: str, *, market_type: str = 'swap', api_key: Optional[str] =
     return ex
 
 
-__all__ = ['EXCHANGES', 'Proxy', 'build_ccxt']
+def _install_hyperliquid_fast_paths(ex: Any) -> None:
+    """HL: signing via coincurve (if installed) and batch cancel as one action."""
+    from bytx.exchanges.hyperliquid.fast_sign import cancel_batch, install_fast_sign
+    install_fast_sign(ex)
+
+    async def bytx_cancel_batch(params: dict) -> Any:
+        return await cancel_batch(ex, params)
+    ex.bytx_cancel_batch = bytx_cancel_batch
+
+
+__all__ = ['EXCHANGES', 'Proxy', 'SWAP_MARKET_OPTIONS', 'apply_swap_market_options', 'build_ccxt']

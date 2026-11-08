@@ -11,6 +11,9 @@
   ``cursor`` = ``nextPageCursor``. ``cashFlow`` is realized PnL only for trade types (TRADE,
   SETTLEMENT, DELIVERY, LIQUIDATION, ADL); for transfers (TRANSFER_IN/OUT …) it is not PnL.
   ``id`` in the docs example repeats across SETTLEMENT and TRADE — duplicate key = id + type + time + tradeId.
+  Without ``category`` the log returns all markets («Product type spot, linear, option, inverse…»), and the ids of
+  spot and the USDT perpetual are the same ('BTCUSDT') — the record's market type comes from ``category``
+  (:data:`CATEGORY_MARKET`).
 """
 from __future__ import annotations
 
@@ -21,6 +24,8 @@ from bytx.exchanges._income_common import DAY_MS, Pages, add, check_depth, num
 from bytx.portfolio import IncomeResult
 
 REALIZED_TYPES = frozenset({'TRADE', 'SETTLEMENT', 'DELIVERY', 'LIQUIDATION', 'ADL'})
+#: record category → ccxt market type (inverse — swap perpetuals; inverse futures are resolved by id, theirs differs)
+CATEGORY_MARKET = {'spot': 'spot', 'linear': 'swap', 'inverse': 'swap', 'option': 'option'}
 WINDOW_MS = 7 * DAY_MS
 LIMIT = 50
 HISTORY_DAYS = 730
@@ -40,7 +45,7 @@ def parse_rows(result: IncomeResult, seen: set, rows: list, since: int, until: i
     for r in rows or []:
         base = (r.get('id'), r.get('type'), r.get('transactionTime'), r.get('tradeId'))
         common = dict(ts=r.get('transactionTime'), currency=r.get('currency'), since=since, until=until,
-                      symbol=r.get('symbol'))
+                      symbol=r.get('symbol'), market=CATEGORY_MARKET.get(str(r.get('category') or '')))
         fee = num(r.get('fee'))
         if fee:
             add(result, seen, base + ('fee',), kind='fee', amount=-fee, **common)

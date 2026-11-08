@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 TERMINAL = frozenset({'closed', 'canceled', 'expired', 'rejected'})
 # stream states after which events may have been lost
 _GAP_STATES = frozenset({'disconnected', 'reconnecting', 'stale'})
+# retry pauses of a failed reconciliation after a reconnect, s
+_RESYNC_BACKOFF = (1.0, 2.0, 5.0, 10.0, 30.0)
 
 
 def _emit(listeners: list, item: Any) -> None:
@@ -60,7 +62,9 @@ class _Tracker:
         self._resync_task: Optional[asyncio.Task] = None
         self._changed = asyncio.Event()
         self._stopped = False
+        self._disconnected = False
         self.resyncs = 0
+        self.resync_failures = 0
 
     # ─── lifecycle ──────────────────────────────────────────────────────────
 
@@ -160,20 +164,37 @@ class _Tracker:
             asyncio.get_running_loop().call_soon(self._notify_waiters)
         elif ev.state in _GAP_STATES:
             self._gap = True
+            self._disconnected = True
         elif ev.state == 'connected' and self._gap:
             self._gap = False
+            self._disconnected = False
             if self._resync_task is None or self._resync_task.done():
                 self._resync_task = asyncio.get_running_loop().create_task(
                     self._safe_resync(), name=f'bytx:resync:{self.kind}')
 
     async def _safe_resync(self) -> None:
-        try:
-            await self.resync()
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # next reconciliation happens on the next reconnect
-            logger.warning(f'{self.ex.name}: {self.kind} REST reconciliation failed: {e}')
-            self._gap = True
+        """Reconciliation after a reconnect; on failure — retries with pauses 1, 2, 5, 10, 30, 30… s (± 10 %) while the
+        tracker is not stopped and the stream is connected (before: live=False until the next disconnect). A disconnect
+        during a pause ends the loop: the next connected starts a new one."""
+        import random
+
+        from bytx.streams import supervisor
+        attempt = 0
+        while not self._stopped and not self._disconnected:
+            try:
+                await self.resync()
+                self._gap = False
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                attempt += 1
+                self.resync_failures += 1
+                self._gap = True
+                delay = _RESYNC_BACKOFF[min(attempt - 1, len(_RESYNC_BACKOFF) - 1)]
+                logger.warning(f'{self.ex.name}: {self.kind} REST reconciliation failed (attempt {attempt}): {e} — '
+                               f'retry in {delay} s')
+                await supervisor._sleep(delay * random.uniform(0.9, 1.1))
 
     async def resync(self) -> None:  # pragma: no cover — overridden
         raise NotImplementedError
@@ -289,25 +310,47 @@ class OrderTracker(_Tracker):
             self._open[order.id] = order
 
     async def resync(self) -> None:
-        """REST: open orders; for those gone from the list, fetch the final status."""
+        """REST: open orders; for those gone from the list, fetch the final status (no more than 4 at once).
+
+        The reconciliation counts (``resyncs``, ``live``) only if every tracked order is in the list, got a final
+        status or was confirmed not found (then it is removed: ``get`` → None, the consumer goes to REST). A failed
+        lookup (network, 429) — the other lookups still run, then the first error is raised: after a reconnect
+        :meth:`_safe_resync` retries the reconciliation."""
         fresh = await self.ex.open_orders(self.symbol)
         fresh_ids = {o.id for o in fresh}
         for o in fresh:
             self._apply(o)
         missing = [o for o in self._open.values() if o.id not in fresh_ids]
-        for o in missing:
-            try:
-                final = await self.ex.order(o.symbol, o.id)
-            except OrderNotFound:
-                logger.warning(f'{self.ex.name}: order {o.id} gone from open orders and not found')
-                continue
-            except BytxError as e:
-                logger.warning(f'{self.ex.name}: failed to get status of order {o.id}: {e}')
-                continue
-            if final.status not in TERMINAL:
-                continue  # exchange still considers it open: wait for WS
-            self._apply(final)
+        gate = asyncio.Semaphore(4)
+        failures: list[BytxError] = []
+
+        async def lookup(o: Order) -> None:
+            async with gate:
+                try:
+                    final = await self.ex.order(o.symbol, o.id)
+                except OrderNotFound:
+                    logger.warning(f'{self.ex.name}: order {o.id} gone from open orders and not found — removed from '
+                                   f'the tracker')
+                    self._forget(o)
+                    return
+                except BytxError as e:
+                    logger.warning(f'{self.ex.name}: failed to get status of order {o.id}: {e}')
+                    failures.append(e)
+                    return
+            if final.status in TERMINAL:   # not final — the exchange still considers it open, wait for WS
+                self._apply(final)
+
+        await asyncio.gather(*(lookup(o) for o in missing))
+        if failures:
+            raise failures[0]
         self.resyncs += 1
+
+    def _forget(self, order: Order) -> None:
+        """The order is confirmed not found by the exchange: remove it (not moved to finished — the status is unknown)."""
+        self._open.pop(order.id, None)
+        if order.client_id and self._by_cid.get(order.client_id) == order.id:
+            del self._by_cid[order.client_id]
+        self._notify_waiters()
 
 
 class PositionTracker(_Tracker):

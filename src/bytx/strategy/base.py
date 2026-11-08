@@ -10,6 +10,7 @@
             ctx.every(30, self.rebalance)                 # timer on the strategy clock
             for order in ctx.recovery.live if ctx.recovery else ():
                 ...                                       # orders picked up after a restart
+            pos = ctx.positions.get('BTC/USDT:USDT')      # position opened before the restart (snapshot)
 
         async def on_tick(self, ctx, tick):               # tick.kind / tick.symbol / tick.data
             ...
@@ -32,7 +33,14 @@ tests), the position journal, execution algos (``ctx.algos``), risk sizing
 
 Startup order: recovery (if the Exchange has ``intents``: :meth:`Exchange.recover`,
 result — ``ctx.recovery``), order and position trackers (REST snapshot), ``symbols × feeds`` subscriptions,
-``on_start``, then events. Events are delivered **one at a time** (strategy callbacks never
+``on_start``, then events. The state at start (after a restart — what's left from the previous
+process) is read in ``on_start``: intent orders — ``ctx.recovery``, positions and open orders — the tracker
+snapshots ``ctx.positions`` / ``ctx.orders``; ``on_position`` / ``on_order`` report only changes after the
+start. Orders, fills and positions — only of ``Strategy.symbols`` and ``ctx.subscribe`` subscriptions (the trackers
+cover the whole account: another bot on the same account doesn't reach ``on_*``; a strategy without ``symbols``
+gets everything; an event without a symbol is delivered — it can't be attributed to someone else). A subscription
+symbol stays the strategy's own after ``handle.stop()`` too — the strategy may still have orders or a position on it.
+Events are delivered **one at a time** (strategy callbacks never
 overlap): ticks, orders (``on_order``), fills (``on_fill``), positions
 (``on_position``), timers. Book / ticker / bid-ask ticks are coalesced — the strategy gets
 the latest (the queue does not grow on a slow callback), trades and candles — all in order. A timer
@@ -120,7 +128,9 @@ class Strategy:
     """Strategy base: override the ``on_*`` you need (all async, no-ops by default).
 
     ``symbols`` × ``feeds`` — subscriptions at start (``feeds`` from :data:`FEEDS`); others —
-    :meth:`StrategyContext.subscribe`. ``timeframe`` — for ``'candles'``.
+    :meth:`StrategyContext.subscribe`. ``timeframe`` — for ``'candles'``. ``symbols`` also limits
+    ``on_order`` / ``on_fill`` / ``on_position`` (events of other symbols of the account are not delivered; empty —
+    all).
     """
 
     symbols: Sequence[str] = ()
@@ -128,7 +138,9 @@ class Strategy:
     timeframe: str = '1m'
 
     async def on_start(self, ctx: 'StrategyContext') -> None:
-        """After recovery and subscriptions, before the first event."""
+        """After recovery and subscriptions, before the first event. Positions and orders already open at start
+        (a restart after a crash) are in ``ctx.positions`` / ``ctx.orders`` / ``ctx.recovery``: there will be no
+        ``on_position`` / ``on_order`` events about them."""
 
     async def on_tick(self, ctx: 'StrategyContext', tick: Tick) -> None:
         """Subscription market event."""
@@ -140,7 +152,8 @@ class Strategy:
         """Own fill (the ``fills`` stream)."""
 
     async def on_position(self, ctx: 'StrategyContext', position: 'Position') -> None:
-        """Position change (position tracker; close — size 0)."""
+        """Position change after the start (position tracker; close — size 0). A position opened before the
+        start is in the ``ctx.positions`` snapshot (read it in :meth:`on_start`)."""
 
     async def on_timer(self, ctx: 'StrategyContext', timer: Timer) -> None:
         """Timer without its own callback."""
@@ -279,6 +292,7 @@ class StrategyRunner:
         self._errors: list[tuple[str, BaseException]] = []
         self._events = 0
         self._started = False
+        self._symbols: Optional[set] = None
 
     # ─── run ────────────────────────────────────────────────────────────────
 
@@ -322,18 +336,22 @@ class StrategyRunner:
         await ex.connect()
         if self.recover and getattr(ex, 'intents', None) is not None:
             self.ctx.recovery = await ex.recover(**self.recover_kwargs)
+        # the trackers and the fills stream cover the account (all symbols: Bitget orders / positions instId=default,
+        # Binance user data …); the strategy gets only events of its symbols — otherwise a position of another symbol
+        # closed on the same account (another bot) would look like its own close (demo Bitget 2026-11-04: a second
+        # entry)
         if self.track_orders:
             tracker = ex.order_tracker()
             await tracker.start()
             self.ctx.orders = tracker
-            self._removers.append(tracker.on_update(lambda o: self._put(('order', o))))
+            self._removers.append(tracker.on_update(lambda o: self._put_own('order', o)))
         if self.track_positions and ex.market_type != 'spot':
             ptracker = ex.position_tracker()
             await ptracker.start()
             self.ctx.positions = ptracker
-            self._removers.append(ptracker.on_update(lambda p: self._put(('position', p))))
+            self._removers.append(ptracker.on_update(lambda p: self._put_own('position', p)))
         if self.track_fills:
-            self._handles.append(ex.stream.subscribe('fills', None, lambda f: self._put(('fill', f))))
+            self._handles.append(ex.stream.subscribe('fills', None, lambda f: self._put_own('fill', f)))
         for symbol in self.strategy.symbols:
             for kind in self.strategy.feeds:
                 opts = {'timeframe': self.strategy.timeframe} if kind == 'candles' else {}
@@ -363,6 +381,12 @@ class StrategyRunner:
         if kind not in FEEDS:
             raise ConfigError(f'strategy subscription: kind must be from {FEEDS}, not {kind!r}')
         s = self.ex.symbol(symbol)
+        own = self._own_set()
+        if own:
+            # the event filter is on (symbols are set) — a subscribed symbol is the strategy's own too and stays so
+            # after handle.stop(): the order / position event filter is not tied to the market data stream — the
+            # strategy may have orders or a position on the symbol, their events must not be lost
+            own.add(s)
 
         def on_item(item: Any) -> None:
             self._tick(kind, s, item)
@@ -407,6 +431,30 @@ class StrategyRunner:
             if not timer.repeat:
                 return
             delay = timer.interval
+
+    def _own_set(self) -> set:
+        if self._symbols is None:
+            self._symbols = set()
+            for s in self.strategy.symbols:
+                try:
+                    self._symbols.add(self.ex.symbol(s))
+                except Exception:  # noqa: BLE001 — the symbol doesn't normalize (no market) — as given
+                    self._symbols.add(s)
+        return self._symbols
+
+    def _own_symbol(self, item: Any) -> bool:
+        """An order / position / fill event of the strategy's symbol: ``Strategy.symbols`` and ``ctx.subscribe``
+        subscriptions; empty ``symbols`` — any. An event without a symbol (the exchange didn't report it — e.g. a
+        sparse response) is delivered: it can't be attributed to another symbol, and losing one's own update is more
+        dangerous (the strategy checks ids). A position without a symbol doesn't exist in the SDK."""
+        own = self._own_set()
+        symbol = getattr(item, 'symbol', None)
+        return not own or symbol is None or symbol in own
+
+    def _put_own(self, kind: str, item: Any) -> None:
+        """An account tracker / fills stream event — into the queue only if it is of the strategy's symbol."""
+        if self._own_symbol(item):
+            self._put((kind, item))
 
     def _put(self, event: tuple) -> None:
         if self._stop is not None:

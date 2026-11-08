@@ -11,6 +11,9 @@ a proxy per account, and tooling for scalping.
 pip install bytx            # + extras: [ws] [fast]
 ```
 
+`[fast]` also installs `coincurve`: Hyperliquid actions are signed in ~4 ms instead of ~50 ms of pure Python
+in the event loop (byte-for-byte the same signature as ccxt).
+
 ```python
 import asyncio
 from bytx import create_exchange
@@ -150,6 +153,26 @@ with what was and wasn't done in `details`. TP/SL not placed after entry — `Pr
 `place_orders` uses one batch request where the exchange has it; Binance spot (the Spot API has no batch
 placement), Gate and MEXC futures (ccxt 4.4.65 createOrders doesn't support them) go one by one in parallel,
 with the same `BatchError` and a per-item result.
+`cancel_orders` and `cancel_all` by tag cancel in batches per the exchange docs: Bybit (linear/spot) — 10 per
+request, OKX — 20, Binance USDⓈ-M — 10, Hyperliquid — 40 (one signed `cancel` action); the outcome is per order (item code: "no such order" — `OrderNotFound`,
+rate limit — `RateLimited`; an item rejected by the rate limit is retried once by a single cancel).
+The account limiter is split by endpoint, as the exchange counts it: Bybit create, amend, cancel, cancel-all and
+trading-stop, OKX placing, amending and cancelling have their own limits; a mass cancel does not delay placing orders
+and closing a position. Bybit 10006 («Too many visits») pauses that endpoint's limiter of the key for the exchange
+window. Per-account limits follow each exchange's Rate Limit docs: Bybit reads (positions, open orders, history,
+executions, balance) per UID; every other OKX private endpoint has its own limit, and OKX trading endpoints are also
+split by instrument («User ID + Instrument ID»); BingX, Bitget, Gate, MEXC and HTX — per endpoint and per UID, with
+only the documented IP weight on the shared IP limiter. Endpoint costs ccxt gets wrong are fixed per the docs
+(Binance USDⓈ-M account / balance / positionRisk — weight 5; `openAlgoOrders` — 1 with a symbol, 40 without).
+Exchange bans pause the limiter until the ban ends and are not retried: HTTP 418, Bybit HTTP 403 «access too
+frequent» (the IP, 10 minutes), BingX 100410 (the endpoint, until the unblock time in the response); `RateLimited`
+carries `retry_after`. A limiter blocked longer than the remaining call deadline (`ex.deadline(...)`) raises
+`RateLimited` right away instead of sleeping; a full SDK limiter queue — `ThrottleQueueFull` (a `RateLimited`).
+Demo and testnet hosts (Binance Demo / testnet, Bybit demo, BingX VST, Hyperliquid testnet, KuCoin sandbox) have their
+own IP limiter: a ban of the demo host does not hold live clients.
+List reads return every page: `open_orders()` (Bybit cursor, OKX `after`, KuCoin Futures `currentPage`, with and
+without a symbol) and Bybit `positions()` without a symbol (every settle coin and inverse); a list cut off by the page
+cap raises `ExchangeError` instead of returning an incomplete list.
 
 **TP/SL:**
 - Default `trigger_by` (`None`): Binance and OKX — `'last'` (Binance
@@ -166,9 +189,25 @@ with the same `BatchError` and a per-item result.
   `stopTriggered`, HL `status`). `status` remains the order status.
 - `modify_tp_sl(symbol, order_id, take_profit=|stop_loss=, size=|contracts=, client_id=)` returns
   `TpSlModifyResult`: `old` — `canceled` / `alive` / `triggered` / `unknown`, `new` — `created` /
-  `unknown` / `rejected` / `None`, `order` — the new order. Bybit Full is changed atomically via the same
-  `trading-stop`. Other exchanges cancel, then place a new order; the new one is placed only if the old one
-  is definitely gone. OKX `amend-algos` is not used yet.
+  `unknown` / `rejected` / `None`, `order` — the new order, `strategy` — how it was moved. The move is done
+  **without a window without a stop** where the exchange allows it (per its docs, table below;
+  `bytx.exchanges.tp_sl_modify`).
+
+  | Exchange | How it is moved | Window without SL |
+  |---|---|---|
+  | OKX | `amend-algos` — the same algoId, new trigger/size (atomic). With a new `client_id` or `trigger_by` (the amend doesn't change them, 51528) — make-before-break: up to 100 TP/SL per instrument | none |
+  | Bybit | Full (whole position) — `trading-stop` in place, the orderId stays; Partial / a new size — make-before-break («Partial: can only add») | none |
+  | Binance | make-before-break: algo `STOP_MARKET` orders with `quantity` coexist. A `closePosition=true` order without a new size — one per side (-4130): cancel, then the new one | none; closePosition — ~0.3–0.6 s (demo) |
+  | BingX | make-before-break: VST accepts a second `STOP_MARKET` on the whole position. Modify Order — LIMIT only, cancelReplace — the same cancel | none (VST) |
+  | KuCoin, Hyperliquid | make-before-break: up to 200 stop orders per contract (KuCoin, docs), reduce-only triggers (HL, testnet) | none |
+  | Bitget | `modify-tpsl-order` in place: the same orderId and clientOid (demo 2026-11-04). `pos_loss` / `pos_profit` (whole position) — one per side: a second placement replaces the previous one with the previous clientOid, so the same size is always moved in place, a new `client_id` is not applied (warning). `loss_plan` / `profit_plan` with a size — several per side: with a new `client_id` or size — make-before-break (whole position → size: a new `loss_plan`, then removing `pos_loss`) | none |
+  | Gate, MEXC, HTX | cancel, then the new one (two TP/SL per position not verified against the docs) | the time of one request |
+
+  Make-before-break: the new one is placed first; the new one rejected — the previous one is untouched
+  (`old='alive'`, `new='rejected'`), outcome unknown — the same (`new='unknown'`, look it up by `client_ids`); the
+  previous one could not be removed — the new one is not lost: `old='alive'` and `both_alive=True` (both are on the
+  exchange, the caller decides). Cancel first: the new one is placed only if the old one is definitely gone; the new
+  one rejected — the previous trigger is placed again (`restored`). Paper — make-before-break.
 
 **Cancel and close only what's yours:**
 - `cancel_all(symbol, client_id_prefix=...)` cancels only orders and TP/SL carrying the bot tag. By
@@ -184,6 +223,10 @@ with the same `BatchError` and a per-item result.
   `'buy'`/`'sell'` raises `ConfigError`.
 - `tp_sl_order(symbol, id)` and `cancel_tp_sl(symbol, order_ids=[...])` work without in-process
   memory: Binance — Algo API by algoId, OKX — algo order by algoId.
+- A triggered TP/SL is often filled by the exchange with a **different** order, and closing trades go under its id, not
+  under the TP/SL id. `tp_sl_order(symbol, id).fill_order_ids` (the first one — `fill_order_id`) are those orders: OKX
+  `ordIdList`, Binance `actualOrderId`, BingX (the order with `triggerOrderId`), Gate, MEXC, HTX. Bybit
+  (trading-stop), KuCoin, Hyperliquid fill under the same id — empty, trades are looked up by the TP/SL id.
 - `flatten(symbol, side)` exits a position step by step: cancels your limit orders, then your TP/SL,
   closes the position with a reduce-only order and waits until it is gone. Returns a `FlattenReport`
   with each step's outcome; `ok` means the position is closed with no errors.
@@ -225,7 +268,10 @@ a contract ≠ a coin (`Market.contract_size`): `BTC-USDT-SWAP` is 0.01 BTC, `XB
 - `place_order(..., margin=, leverage=)` sizes from margin with leverage: contracts = margin × leverage /
   (price × contract_size). Price is the execution price: your own for limit, the reference price for market.
   `leverage` defaults to the one from `set_leverage` on this instance; no leverage or a different one —
-  `ConfigError`. `notional=` is the full notional **without** leverage.
+  `ConfigError`. `notional=` is the full notional **without** leverage. A size below the minimum lot is rounded up
+  to the minimum: 5 USDT of margin × leverage on BTC may become 100 USDT. `max_round_up=` (default None — no cap, but
+  a WARNING at 2× and more) caps how many times the minimum may exceed the requested size, otherwise `OrderTooSmall`
+  (`details`: `requested`, `min`).
 - `contracts_for_margin(symbol, margin, leverage, price)` does the same math without an order. `None` —
   below the exchange's minimum lot even after rounding up one step.
 - Size rounding is the same on every path: division in `Decimal`, snapping up to a whole lot if it is
@@ -280,8 +326,8 @@ respond (202 → www.binance.com), and testnet.binancefuture.com is the same bac
 order book and lastUpdateId; checked without keys 2026-10-26).
 Docs: [Spot Demo Mode](https://developers.binance.com/docs/binance-spot-api-docs/demo-mode/general-info),
 [USDⓈ-M General Info](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info).
-Without `/sapi`: `health().status` is `'unknown'` (no request), `check_key()` returns key permissions and UID as `None`
-with the reason in `unknown`. ccxt inferred the error market type and WS spot streams from the host — fixed
+Without `/sapi`: `health().status` is `'unknown'` (no request), `check_key()` returns key permissions as `None`
+with the reason in `unknown`; the UID in Demo Mode is read from `/api/v3/account` (demo 2026-11-04). ccxt inferred the error market type and WS spot streams from the host — fixed
 for demo hosts (`bytx/exchanges/binance/demo.py`).
 
 ### Demo environment quirks
@@ -290,13 +336,21 @@ Quirks of the demo environments themselves (not SDK bugs; checked 2026-10-26):
 
 - **Binance spot testnet** (`demo='testnet'`, `testnet.binance.vision`) is a separate system with its own
   keys: a futures testnet key gets -2015 there. In Demo Mode (`demo=True`) the key is shared.
-- **Binance Demo Mode and futures testnet** have no sapi (`apiRestrictions`, UID): `check_key()` returns
-  `can_trade`/`can_withdraw`/`ip_restricted` = None with the reason in `unknown`. A `withdraw='reject'`
-  policy on testnet won't catch a key with withdrawal rights — only a warning.
+- **Binance Demo Mode and futures testnet** have no sapi (`apiRestrictions`): `check_key()` returns
+  `can_trade`/`can_withdraw`/`ip_restricted` = None with the reason in `unknown` (the UID comes from
+  `/api/v3/account`, available in Demo Mode). A `withdraw='reject'` policy won't catch such a key with withdrawal
+  rights — only a warning.
+- **BingX VST** — key permissions (`/openApi/v1/account/apiPermissions`) and UID (`/openApi/account/v1/uid`)
+  answer on the VST host on the production paths (demo 2026-11-04): `check_key()` on VST knows the withdrawal
+  permission. Balance and Get Fund Flow on VST are in the `VST` currency (virtual USDT; counted as USDT in portfolio
+  totals); the VST ledger lags: trades — 6–13 min, funding — 20–65 min after settlement (2026-11-04); the
+  funding rate history on VST is sometimes empty, sometimes a year old.
 - **`health().status`** on Binance (Demo Mode and testnet) and Bitget demo is `'unknown'`: these environments
   have no status pages; `reachable` and clock offset are measured as usual.
 - **Bitget demo** — the account is funded manually in the web UI (Demo Trading: USDT on futures and
   spot). With an empty account, trading requests get `InsufficientFunds` (40762 / 43012).
+  Get Trade Rate (`trading_fee`) on demo — 40404 «Request URL NOT FOUND» (demo trade rates — maker 0.02%,
+  taker 0.06%, as in the docs).
 - **Bybit demo** has no public demo WS (market data comes from production public streams, no keys).
 
 SDK behavior discovered on demo:
@@ -319,10 +373,52 @@ SDK behavior discovered on demo:
   the same binding. The same client_id is never reused (Binance: "unique id among open
   orders"; lookup by id would be ambiguous). KuCoin (alter doesn't set the new order's client_id),
   MEXC and HTX (no editOrder / ccxt emulation) — `NotSupported`: cancel and place again.
+- **Bitget** (demo 2026-11-04): `leverage()` — the leverage of the symbol's margin-mode pocket (cross —
+  `crossedMarginLeverage` of Get Single Account, isolated — `isolatedLong/ShortLever`; ccxt returned isolated in cross
+  too); hedge — the exchange response `side` is the position direction (closing a long — `buy` + `tradeSide close`),
+  SDK `Fill.side` / `Order.side` is the trade direction (ccxt reported REST trades and WS closing orders as buys; the
+  WS Fill Channel already sends the trade direction); `modify_tp_sl` for a whole-position TP/SL (`pos_loss` /
+  `pos_profit`, size `"0"`) — in place without a window (the exchange doesn't create a second such order per side but
+  replaces the previous one), and where the move is a cancel and a new placement, the new one also covers the whole
+  position (before, the previous one was removed and the new one rejected before the network — a position without a
+  stop); a size ≤ 0 — `ConfigError` before any action; `tp_sl_order` finds a fired / removed TP/SL in the plan order
+  history (Get History Trigger Order); a TP/SL rejected by price (40834, 40915, 40917 …) — `InvalidOrder`; a
+  cancel-plan-order counts only `successList` (empty lists — the order is re-read: gone — `OrderNotFound`, alive —
+  retried with its `planType` or «cancel not confirmed»).
 
 The same table in code, without network or keys: `bytx.exchange_info('okx')` →
 `ExchangeInfo(credentials=('api_key', 'secret', 'password'), markets=('spot', 'swap'), demo={...})`,
 `bytx.exchanges_info()` for all exchanges.
+
+## Spot
+
+`create_exchange(name, market='spot')` on Binance, Bybit, OKX and KuCoin follows each exchange's own documentation:
+
+```python
+ex = create_exchange('bybit', market='spot', api_key=..., secret=..., demo=True)
+await ex.buy('DOGE/USDT', notional=10, client_id='b1')   # market buy for 10 USDT
+await ex.order('DOGE/USDT', client_id='b1')               # any status, within the exchange's retention
+await ex.find_order('DOGE/USDT', 'b1', timeout=8)         # None — absent; RequestTimeout — could not check
+await ex.sell_all('DOGE/USDT', client_id='s1')            # the whole free base balance; dust → None + WARNING
+```
+
+| | Binance | Bybit | OKX | KuCoin |
+|---|---|---|---|---|
+| `buy(notional=…)` market | `quoteOrderQty` | `marketUnit=quoteCoin` | `tgtCcy=quote_ccy` | `funds` |
+| size / cost limits | `LOT_SIZE`, `MARKET_LOT_SIZE` (market orders), `NOTIONAL` | `basePrecision`, `minOrderAmt` | `lotSz`, `minSz` | `baseIncrement`, `baseMinSize`, `minFunds`, `quoteMinSize` |
+| order by `client_id` | `GET /api/v3/order` | `/v5/order/realtime` → `/v5/order/history` | `/trade/order` → `orders-history` (7 days) → `orders-history-archive` (3 months) | HF: `hf/orders/client-order` → `hf/orders/done` (`lastId`); classic: active orders only |
+| demo | Demo Mode / testnet | demo | demo trading | — |
+
+- `buy(notional=…)`: the quote amount is sent with the exchange parameter and rounded down to the quote step; below
+  the minimum cost (on OKX — below `minSz` at the reference price) it is `OrderTooSmall` before sending. Sells by
+  notional and other exchanges convert to the base size at the reference price.
+- `sell_all(symbol, *, client_id=None)` — spot only (`ConfigError` otherwise): the free base balance strictly rounded
+  down to the lot step, then a market sell through `place_order`. Dust (below the step, the minimum size or the
+  minimum cost) returns `None` with a WARNING.
+- A failed history page is never read as «no order»: `find_order` raises `RequestTimeout`; a pagination cut-off is
+  `ExchangeError`. A placement timeout on spot is reconciled through the same lookup, so no second order is sent.
+- KuCoin: an empty `data: null` response is treated as «not found» (the documentation does not describe the
+  not-found response).
 
 ## WebSocket
 
@@ -425,39 +521,75 @@ the `place_order` / WS hot path is unchanged.
 
 - **chase** — post-only at the best price on its side; when the price moves — cancel, confirmed
   final status, new order for the remainder (not amend: on some exchanges it loses post-only).
-  A post-only bounce (rejected on placement or cancelled by the exchange) is retried. Limits: `max_moves`,
-  `max_deviation_bps` from the start price, `timeout`, `min_interval` between re-quotes;
-  when exhausted — `on_exhausted='stop'` or `'market'` (IOC with a cap).
+  A post-only bounce (rejected on placement — Binance -5022, BingX 101215 — or cancelled by the exchange) is
+  retried. Limits: `max_moves`, `max_deviation_bps` from the start price, `timeout`, `min_interval` between
+  re-quotes; when exhausted — `on_exhausted='stop'` or `'market'` (IOC with a cap).
 - **market** — limit IOC no worse than "best opposite (or mid) ± `max_slippage_bps`", price rounded inside
-  the cap; without opposite liquidity within the cap no order is sent; `retries` reuse the same price.
+  the cap, and where the exchange limits the order price with a band (OKX `price-limit`: beyond it 51006, demo BTC —
+  ±0.5%) — inside the band too (`extra['price_band']`); without opposite liquidity within the price no order is
+  sent; `retries` reuse the same price. The same applies to twap IOC parts and the chase remainder.
 - **twap** — `slices` parts over `duration` seconds: parts catch up on schedule lag, `randomize`
-  jitters timing and weights (`seed`), a part below the step accumulates; `slice_type='market'` (with
-  `max_slippage_bps` — IOC) or `'limit'` (post-only, remainder rolls into the next part, market at the end).
-- **iceberg** — only `visible` (± `visible_jitter`) at `price` on the book; a part cancelled by someone else —
-  stop (`child_canceled`).
+  jitters timing and weights (`seed`), a part below the minimum order accumulates, a tail below the minimum goes
+  into the last part; `slice_type='market'` (with `max_slippage_bps` — IOC) or `'limit'` (post-only, remainder
+  rolls into the next part, market at the end).
+- **iceberg** — only `visible` (± `visible_jitter`) at `price` on the book, but not below the minimum order
+  (`extra['visible_min']`); a part cancelled by someone else — stop (`child_canceled`); a size that can't be split
+  into parts smaller than itself — `OrderTooSmall` (the whole size is never silently placed on the book).
 - **bracket** — market/limit entry (`entry_timeout`) → `set_tp_sl` on the filled size → **OCO**:
-  how the exchange links TP and SL follows its docs (`bytx.exchanges.tp_sl_oco`): OKX — one algo order
-  (one leg fires); Binance, Bybit (Partial legs), BingX, Hyperliquid (grouping `na`), KuCoin —
+  how the exchange links TP and SL follows its docs and demo runs (`bytx.exchanges.tp_sl_oco`): OKX — one `oco`
+  algo order (one leg fires; for a `conditional` order with TP and SL in one-way the exchange executes only the SL —
+  Place algo order docs, demo 2026-11-04); Binance, Bybit (Partial legs), BingX, Hyperliquid (grouping `na`), KuCoin —
   legs are independent, and the algorithm cancels the sibling of the fired leg (otherwise the reduce-only leg
-  would close the next position). Protection not placed — the entry is closed (`on_protect_fail='close'`).
+  would close the next position). Demo 2026-11-04: on Bybit Partial and BingX the sibling stays alive while the
+  position is open (no OCO), and when the position closes the exchange cancels the remaining legs itself; KuCoin —
+  by the docs only (the link is not described, no demo), `verified=False`. A leg that fired between reading the legs
+  and reading the position still gives the reason `take_profit`/`stop_loss`. OKX: a fired algo pair is not found by
+  `algoId` for minutes (51603) — then the reason is `position_closed`. Protection not placed — the entry is closed
+  (`on_protect_fail='close'`). With an intent store the protection plan (TP/SL prices, `trigger_by`, size, leg
+  client_ids) is written **before the entry is sent** — if the process is killed between the entry and the legs,
+  `ex.recover()` places the missing legs from the plan (see "Restart recovery and strategies"); once the legs are
+  placed the plan is retired and the algorithm manages them.
 - **trailing_stop** — client-side level trailing the extreme (`distance` / `distance_pct`,
   `activation_price`), triggered via reduce-only market. `exchange_stop=True` — a backup SL on the
   exchange, moved make-before-break (Bybit Full — `modify_tp_sl` in place).
 
+The minimum order of a part is the amount step, `min_amount` and the **minimum notional** `min_cost` at the order
+price (with a 1% margin; for reduce-only the notional is not checked — same as in `place_order`). The whole `size`
+below the minimum — `status='failed'`, `OrderTooSmall`, no orders; a remainder below the minimum can't be placed —
+result `filled`, the remainder in `extra['below_min']` (chase cancels the partially filled limit order).
+
 Common rules: every child order is a regular SDK order (bot tag `client_id_prefix`, broker
 tag, `pre_submit`, RiskGuard); with a position journal — a role (`role=`, `entry`/`tp`/`sl` for bracket,
 `trailing` for trailing) and `position_id=`. An order with an unknown outcome is not re-quoted — it is reconciled by
-client_id; no new order goes out while the previous one may be alive; network failures retry up to `max_errors`.
+client_id; no new order goes out while the previous one may be alive; network failures, «order not found» for an
+order the exchange accepted and an unclear cancel rejection retry up to `max_errors`. A child cancel response without
+the filled amount (Bitget Cancel Order — `orderId` / `clientOid` only; OKX, Bybit, KuCoin, HL — the id only) — the
+order is re-read (a live tracker first, otherwise REST): what was filled before the cancel is not lost, chase doesn't
+place the remainder anew. The cancel is accepted but a read sees the order open (an async cancel) — no second order
+is placed; no final state within `max_errors` pauses of `poll` — the algorithm is `failed` with the reason
+`cancel_unconfirmed` (the order is in `extra['unconfirmed']`, cleanup cancels it once more; with an intent store the
+record is `unclean` — `recover()` after a restart cancels the live order).
 Order state comes from a live `OrderTracker` (`tracker=`), after a WS disconnect — REST until the tracker resyncs.
 `cancel()` cancels working orders (for bracket/trailing — protection too); an algorithm failure or cancelling its task
-does **not** remove position protection. Algorithms live in process memory: they don't resume after a restart
-(recovery — see "Restart recovery and strategies").
+does **not** remove position protection. Algorithms live in process memory: they **don't resume** after a restart.
+`kill -9` (unlike cancelling the task) doesn't cancel working orders: a chase limit order, the visible iceberg part,
+a twap limit part, a bracket limit entry would stay on the book at the last price unattended. With an intent store
+(`intents=IntentStore(...)`) `ex.recover()` takes care of it — the **safe policy** (`cancel_orphaned_algos=True` by
+default): working orders of unfinished algorithms are cancelled, position protection (bracket legs, trailing SL)
+stays, filled parts are not touched — `report.algos`, see "Restart recovery and strategies". A bracket killed
+between the entry fill and its legs gets the legs from its protection plan (written before the entry) — position
+protection, not resuming. Bracket OCO watching and trailing SL tightening do not resume after a restart.
 
 > ⚠️ **Orphaned OCO leg.** Where the exchange doesn't link TP and SL (all but OKX), the sibling of the fired leg
 > is cancelled by the bracket task. If the task is cancelled, the algorithm crashes or the process restarts, the link is gone: after
 > one leg fires, the other (reduce-only) stays on the exchange and will close the **next** position on the same
 > side. `ex.recover()` cancels **your own** such legs if there is definitely no position on their side
 > (`report.orphans_canceled`; `cancel_orphaned=False` — report only, in `report.orphaned`), see below.
+> Demo 2026-11-04: Binance leaves the legs after the position closes — `recover()` found and cancelled them;
+> Bybit, BingX and OKX (`cxlOnClosePos`) cancel the legs themselves once the position is closed. A risk remains when
+> the symbol's position is larger than the bracket size (another bot, a manual entry): the leg lives on the rest of
+> the position, it is not an "orphan", and on Bybit (trading-stop) and BingX (conditional orders) the leg has no
+> client_id — `recover()` doesn't recognize it as yours.
 
 ## Risk-based position sizing
 
@@ -493,6 +625,24 @@ if present, no second one is placed; if not, the stop is placed separately (warn
 is decided by `bytx.protection.find_leg`: client_id where it is sent to the exchange, otherwise kind + side +
 trigger price at the exchange price step.
 
+Demo run 2026-11-04 (Bybit / Binance / OKX / BingX, BTC and ETH):
+
+- the loss when the stop fires (entry and exit trades from the exchange, reconciled with the exchange's funds journal
+  `account_report`) stays within `RiskPlan.risk` plus slippage beyond `slippage_bps`; the traded size equals the
+  plan with contractSize (OKX — contracts of 0.01 BTC / 0.1 ETH); the trade fee equals the taker fee from the docs
+  (Bybit 0.055%, OKX and BingX 0.05%); Binance Demo Mode — the account rate 0.04% < 0.05% of the docs (the plan has
+  a margin; your own tier — `fee_rate=`);
+- an attached SL fires on the exchange's default trigger: Bybit `slTriggerBy` and OKX `slTriggerPxType` — last,
+  BingX — mark; a separate one (`set_tp_sl`) — by `trigger_by` / the SDK default;
+- an entry with an attached SL on the wrong side of the price is rejected by the exchange **entirely** (Bybit 10001,
+  OKX 51051, BingX 101400 — `InvalidOrder`), no position; a rejected separate SL (Bybit 10001, OKX 51280, Binance
+  -2021, BingX 110411) — reduce-only rollback, `ProtectionNotPlaced(rolled_back=True)`;
+- BingX: STOP_MARKET / TAKE_PROFIT_MARKET legs are placed when the entry fills, on the whole size —
+  `attached_sl('bingx')` is verified (`verified=True`); OKX: the exchange keeps a TP+SL from `attachAlgoOrds` as an
+  `oco` order (SL only — `conditional`) — the SDK requests the TP/SL list as `conditional,oco`; KuCoin — per the docs
+  spec only (no demo, `verified=False`). A partial fill of an attached entry can't be reproduced on demo (market fills
+  entirely).
+
 With an intent store (`intents=`), the stop plan — SL and TP prices, `trigger_by`, side, mode
 `attached` / `separate`, the stop's client_id (`stop_client_id`: OKX `attachAlgoClOrdId`, for separate —
 pre-generated and sent as is; Bybit trading-stop and an OKX TP+SL pair — `None`) — is
@@ -514,14 +664,32 @@ ex = create_exchange('okx', ..., client_id_prefix='bot42', intents=IntentStore('
 report = await ex.recover(resubmit=False)        # at process start, before any new orders
 report.adopted, report.finished, report.abandoned, report.unverified, report.live
 report.orphans_canceled, report.orphaned, report.orphan_reasons   # orphaned TP/SL: cancelled / kept and why
+report.algos     # ex.algos algorithms that died with the process: canceled / finished / kept + reasons / filled / closed
+report.algos[0].protection, report.algos[0].protected   # bracket: plan protection result per leg, placed legs
+report.ok            # all intents reconciled — and only that: ok does NOT show a position without a stop
+report.unprotected   # ⚠️ algorithms whose position may be left without a stop (the caller decides) — check with ok
+report.stale_plans   # entries whose TP/SL plan was closed instead of applied ('superseded' / 'expired')
+report.deferred      # open entries with a trigger_by plan and no position yet — protection after the fill
 ```
+
+> ⚠️ **A naked position shows up in `report.unprotected`, not in `report.ok`.** `ok=True` only means "intents
+> reconciled": a bracket whose price passed the SL (`price_passed`), `protect=False` or an exchange rejection leaves
+> the position without a stop even with `ok=True`.
 
 `IntentStore` (stdlib `sqlite3`, no dependencies) writes every order **before sending** (`pending`, last
 before the network — after `pre_submit` and the journal), then its outcome: `placed` / `final` / `rejected` (explicit rejection) /
 `unknown`; the outcome is written after the journal. TP/SL legs with a client_id too, linked to the parent entry (Bybit trading-stop without
 client_id — not). Cancels via the SDK and `OrderTracker` close intents. `durable=True` (default) —
 `synchronous=FULL`; `durable=False` — faster, survives a killed process but not a power loss. One
-file serves several accounts: namespace = exchange, market, live/demo/paper and `account=`.
+file serves several accounts: namespace = exchange, market, live/demo/paper, `account=` and the API key fingerprint
+(a hash, no secrets; paper without a key — `paper`): `AccountPool(intents=store)` and a shared file of different keys
+do not mix intents — `recover()` of account A does not touch B. Schema 5: rows of schemas 1–4 (no fingerprint) are
+moved automatically on first access when `account=` is set; without `account=` `recover()` leaves them alone — they
+are in `report.unverified` with `ConfigError` and a WARNING, move yours with `store.claim_legacy(ex)`. After an API key
+change the namespace is new — `store.claim_legacy(ex, namespace=<previous>)` moves the previous intents. One process
+per store file: `IntentStore` holds a file lock `<db>.lock` (POSIX), a second process gets `ConfigError` on open
+(several `IntentStore` objects on one file within a process are fine). Deploy **stop-first**; parallel processes —
+different files; `recover()` — at start, before new orders.
 
 `ex.recover()` reconciles open intents with the exchange by id / client_id / open orders:
 
@@ -535,7 +703,9 @@ file serves several accounts: namespace = exchange, market, live/demo/paper and 
 > finished orders only for a limited time (OKX — cancelled unfilled orders for about 2 h, Binance — 3 days).
 > So `max_age=None` (no limit) is dangerous: a long-filled-and-gone order could be recreated.
 > Keep `max_age` (default 300 s). The same client_id with a different request while the intent is open —
-> `ConfigError` before sending; if the intent is closed, it is overwritten with the new request.
+> `ConfigError` before sending; if the intent is closed, it is overwritten with the new request as a whole — with
+> the same request too: the previous entry's TP/SL plan, `protected` and `filled` are not carried over, and its legs do
+> not cover the new entry.
 | could not verify | `unverified`: nothing is sent, the intent stays open |
 
 Fresh intents wait `settle` seconds (exchange lookup may lag). An entry with a protection plan whose TP/SL
@@ -544,8 +714,15 @@ modes) gets the missing legs (`protect=True`, reduce-only) — but first `recove
 exchange's open TP/SL for the symbol and side: if a stop is already there (attached by the exchange to an attached entry,
 placed before the crash), no second one is placed (`find_leg`: client_id, otherwise kind + side + price at step).
 TP/SL list not readable — `unverified`, nothing is placed (an extra stop and a position without a stop are equally
-bad — retry `recover()`); an attached entry still filling — also `unverified`. The entry is marked
-protected only when all legs are placed. Your own entry with protection after it —
+bad — retry `recover()`); an attached entry still filling — also `unverified`; a limit entry on the book with a
+`trigger_by` plan (legs go on the position) and no position yet — `report.deferred` (does not affect `ok`), the entry
+is not marked protected, `recover()` places the legs after the fill. The entry is marked
+protected only when all legs are placed. An entry plan is closed (schema 5, `Intent.plan_retired`) and not applied
+when the protection failure was reported to the caller (`ProtectionNotPlaced` from `place_order` / `open_position` —
+'protection_failed'); when there is a newer entry of the same side of the symbol ('superseded'); when the plan is
+older than `protect_max_age` (a day by default) since the last movement of the entry (fill / order update from the
+exchange), the side's position exists and legs are missing ('expired'). The last two go to `report.stale_plans` with
+the reason and a WARNING; the position's protection is the caller's decision. Your own entry with protection after it —
 `with ex.intents.protection({'stop_loss': ..., 'take_profit': ...}):` around `place_order`. A failure inside
 `recover()` doesn't multiply legs: before recreating a leg it checks whether a leg of the same kind already exists for the same
 entry. A TP/SL leg stores `trigger_by` (`Intent.trigger_by`) and is recreated with the same trigger type.
@@ -560,13 +737,102 @@ KuCoin stop orders); one leg failing doesn't break `recover()`. Cancelled — `r
 `report.orphaned`, reason — `report.orphan_reasons[id]`. Candidates are searched across the symbols of all intents
 in the store and `symbols=`.
 
-Store schema is version 2 (`trigger_by` column): a version 1 database migrates in place on open
-(`ALTER TABLE`, old rows are readable); a database newer than the library — `ConfigError`.
+**Execution algorithms after a restart** (`ex.algos`: chase, twap, iceberg, bracket, trailing, capped
+market) don't resume — their progress lived in process memory. With a store, an algorithm's start is recorded before
+its first child order (the `algos` table: id, kind, symbol, side, size; `running`), its end — `finished`
+(the algorithm cancelled its working orders itself) or `unclean` (a cancel failed, a child's outcome is unknown); the
+intent of every child order and TP/SL leg carries `algo_id` (there is no marker in the client_id: the client_id format
+stays unchanged, and Bybit/BingX legs have no client_id at all). `recover(cancel_orphaned_algos=True)` (the default)
+handles each unfinished algorithm (`running` / `unclean`, not running in this same process):
+
+| Algorithm order | What `recover()` does |
+|---|---|
+| working (a regular order: chase limit order, twap / iceberg part, bracket entry, IOC), live | cancels it via `cancel_order`; the filled part stays as the position (the order's `filled` and `report.algos[i].filled`) — `canceled` |
+| working, filled / cancelled while the process was down (or filled between reconciliation and the cancel) | `finished` |
+| working, never reached the exchange | `abandoned`, **not recreated** even with `resubmit=True` (nobody would manage it) |
+| TP/SL leg (bracket legs, trailing SL) | **stays** — position protection (`kept`, reason in `reasons`); without a position the orphan logic cancels it |
+| a bracket plan leg that is missing (died between the entry and the legs) | **placed** (`protect=True`) if the plan side's position exists — `protected`, the result per leg in `protection` (below) |
+
+The algorithm record is closed (`recovered`) — a repeated `recover()` doesn't touch it; a working order not verified
+(network) or not cancelled — the record stays open, the next `recover()` retries. `cancel_orphaned_algos=False` —
+report only (working orders are adopted as before, `kept` with a reason). A bracket without a protection plan (a
+schema 3 record, a plan retired by cancelling the algorithm) — an explanation in `notes` (the side's TP/SL are on the
+exchange — not touched; none — "the position is unprotected"); with a plan — legs from the plan (below). One process
+per store namespace:
+`recover()` of another process would cancel the working orders of a live algorithm. Demo 2026-11-04 (`kill -9` of a
+child process): Bybit SOL — chase and twap (a limit part on the book) → `recover()` cancelled the order (the exchange
+confirms `canceled`), a repeated one — no actions; Binance SOL — bracket: legs kept as protection, the limit entry
+cancelled; Bybit XRP — the same with client_id-less legs. Resuming algorithms is not implemented.
+
+**Bracket position protection from the plan.** A bracket writes its protection plan — position side, TP/SL prices,
+`trigger_by`, size, client_ids of the recovery legs — to its record (`algos.plan`) **before sending the entry** and
+retires the plan itself (`retired`) as soon as the legs are placed (`protected` — from then on the algorithm manages
+them), it is cancelled (`cancel()`, before removing the legs) or protection failed (`on_protect_fail`). If the process
+is killed (or the task is stopped: `task.cancel`, SIGTERM — the record is then `unclean`, not `finished`) between the
+entry fill and the legs, the algorithm does not resume, but `recover(protect=True)` (the default) places the missing
+legs after reconciling and cancelling the working entry — position protection only:
+
+- a plan older than `protect_max_age` (a day by default, `None` — no limit) since the last movement of the entry
+  (fill / update time of the entry order from the exchange; a limit entry may rest longer than a day) is not applied
+  (`expired`): the position may have changed; checked only when the plan side's position exists and legs are missing;
+- the entry fill comes from the algorithm's orders; finished ones are re-read from the exchange (a cancel response on
+  Bybit / OKX / KuCoin / HL / Bitget has only the id), a read failure — `unverified`; the entry still works
+  (`cancel_orphaned_algos=False`, cancel failed) — `unverified`, no legs for a partial size;
+- a leg already exists (a live leg intent of the algorithm; on the exchange — by the plan / algorithm leg client_id;
+  by kind + side + price — only a leg without a client_id: Bybit trading-stop, BingX, created no earlier than this
+  bracket's entry, and one such leg for one bracket per recovery; an OKX pair — both) — a second one is not placed: a
+  repeated `recover()` and a `kill -9` inside it do not duplicate legs; foreign legs (another bot, another own bracket
+  with the same prices) are not counted and not adopted;
+- no position on the plan's side — nothing (`no_position`); only the other side is open — nothing, a warning
+  (`opposite_side`; in hedge — a separate position, not touched);
+- size — filled by the entry (minus what the algorithm closed), no more than the position; below the minimum order —
+  `too_small`. "Whole position" TP/SL is not used: Bybit Full would replace a foreign stop of the position, Binance
+  `closePosition` is one per side, and such a stop would protect a foreign size;
+- the price by the plan's `trigger_by` (mark — position mark / ticker, last — last trade) is already past the trigger
+  — the leg would trigger at once or be rejected: not placed (`price_passed`, a warning in the log); **the SDK does not
+  close the position** — the caller decides;
+- the algorithm's leg triggered — nothing (`triggered`); cancelled or gone from the exchange history — not re-created
+  (`canceled`); placement outcome unknown — `unverified`, the next `recover()` checks it.
+
+```python
+report = await ex.recover()
+for a in report.unprotected:      # the position may have no stop: the plan SL is not placed / no plan — no side SL
+    ...   # a.symbol, a.side, a.protection, a.notes: closing the position or placing a stop is the caller's decision
+```
+
+The result per leg — `a.protection['stop_loss' | 'take_profit']`: `placed` (in `a.protected` and `report.protected`),
+`present`, `triggered`, `canceled`, `no_position`, `opposite_side`, `price_passed`, `too_small`, `expired`, `failed`
+(the error — in `report.failed`), `unverified`, `disabled` (`protect=False` — report only). With `failed` and
+`unverified` the algorithm record stays open — the next `recover()` retries (no longer than `protect_max_age`); with
+the other results the record is closed. Plan legs are independent (no OCO watching): where the exchange does not
+cancel the remaining leg when the position closes (Binance), the next `recover()` (orphan logic) or the caller cancels
+it.
+
+> Limitations. Legs without a client_id (Bybit trading-stop, BingX, Gate, MEXC, HTX) are recognized by kind + side +
+> price; a leg created before this bracket's entry is not counted as its leg. If identical legs (your other bracket
+> with the same prices) were placed after the entry, or the exchange gives no leg creation time, a bracket that died
+> before its legs will take them as its own (`present`).
+
+Store schema is version 5 (2: `trigger_by` column; 3: `algo_id` column and the `algos` table; 4: `algos.plan`; 5:
+`intents.plan_retired` and the key fingerprint in the namespace): a version 1–4 database migrates in place on open
+(`ALTER TABLE`, old rows are readable; row namespaces are not renamed — `claim_legacy`); a database newer than the
+library — `ConfigError` (an older SDK does not start on a newer schema — by design).
+
+**Schema rollback** (rolling back the SDK version) — one of two: (1) the old process starts with a new empty database
+(`recover()` over the previous intents is not needed); (2) stop the process (the `<db>.lock` lock: while it runs the
+tool refuses) and run `python tools/intents_downgrade.py bot.sqlite --to 3` (bytx 0.1.5 and earlier): key
+fingerprints are stripped from namespaces, `meta.schema` — the target one; a client_id conflict between keys — refused
+without changes (`--force` — keep such rows with the fingerprint, the older version will not see them). Version 3 does
+not read `algos.plan` (no plan protection). On upgrading again the database migrates anew.
 Orders with the bot tag but no intent are `untracked` (role from the journal), exact tag match only. Closed
 intents older than `prune_after` are pruned. A test matrix over failure points (before/after the intent, in flight, before
 the outcome, before the journal, between entry and TP/SL; `open_position` on 6 exchanges: before/after the plan, entry in flight,
 partial fill with and without an attached SL, before the stop, inside `recover()`) is covered by tests: no
-duplicates, no losses, no position without a stop.
+duplicates, no losses, no position without a stop. Demo 2026-11-04 with a real `kill -9` of the process (Bybit,
+Binance, OKX, BingX — BTC and ETH): request not sent — `abandoned` or recreated with the same client_id (one order);
+response lost — adopted without a duplicate; filled or cancelled while down — `finished`; killed between entry and
+stop — SL and TP per the plan; `kill -9` inside `recover()` itself — the next one completes without duplicates; a
+tagged order without an intent — `untracked`, an untagged one — untouched.
 
 **Strategy** — lifecycle `on_start` / `on_tick` / `on_order` / `on_fill` / `on_position` / `on_timer` /
 `on_stop`, subscriptions `symbols × feeds` (`ticker`, `order_book`, `best_bid_ask`, `trades`, `candles`) and
@@ -575,6 +841,18 @@ duplicates, no losses, no position without a stop.
 Start: `ex.recover()` (if `intents` is set; result in `ctx.recovery`), trackers, subscriptions, `on_start`.
 Events are delivered one at a time (callbacks never overlap); order book/ticker ticks are coalesced to the latest; callback
 errors go to `result.errors` (`max_errors` — stop); `on_stop` is always called.
+
+After a restart, what's left from the previous process is read in `on_start`: intent orders — `ctx.recovery`
+(`live`, `finished` …), positions and open orders — the tracker snapshots `ctx.positions` / `ctx.orders`.
+`on_position` / `on_order` report only changes **after** the start: a strategy that learns about a position only from
+`on_position` will enter a second time after `kill -9` with an open position (demo 2026-11-04 — that's how example 10
+doubled the position before the fix). `on_order` / `on_fill` / `on_position` — only of `Strategy.symbols` and
+`ctx.subscribe` subscriptions (the trackers cover the whole account; a strategy without `symbols` gets everything; an
+event without a symbol is delivered — it can't be attributed to someone else; a subscription symbol stays the
+strategy's own after `handle.stop()` too): a position of another symbol closed on the same account (another bot) used
+to reach the strategy as its own close — a second entry (demo Bitget 2026-11-04, BTC with ETH in parallel). In hedge
+mode the strategy checks the position side itself (example 10 — long only). Best bid/ask — the `best_bid_ask` stream:
+the Binance USDⓈ-M WS ticker (`24hrTicker`) has no bid/ask, only `last`.
 
 ```python
 class Mine(Strategy):
@@ -712,7 +990,12 @@ async with AccountPool.from_file('accounts.yaml') as pool:
   received (+) / paid (−), `net_pnl = realized − fees + funding`. If history was cut off (page
   limit, window deeper than the exchange's history), the exchange doesn't return part of the data (KuCoin — account fees:
   `fees=None`) or an account couldn't be read — `complete=False` with the reason in `issues`: a partial sum is never
-  passed off as complete. Per-account totals are in USDT/USDC/USD (1:1); other currencies are in `totals`.
+  passed off as complete. Per-account totals are in USDT/USDC/USD (1:1; BingX demo VST too); other currencies are
+  in `totals`. The symbol of a ledger record (`keep_items=True` → `report.items`) is the SDK symbol
+  (`'BTC/USDT:USDT'`), not the exchange market id; `account_report(symbols=['BTC/USDT:USDT'])` — a report for these
+  symbols (ledger, positions, unrealized PnL), equity — of the whole account. Checked on Bybit / Binance / OKX /
+  BingX demo (2026-11-04): equity = the exchange response, realized PnL and fees of own trades = the ledger,
+  funding = the exchange ledger and −size × mark × rate.
 - **Key check** (`ex.check_key()`, `ex.account_uid()`): trading and withdrawal permissions, transfers, IP
   binding, account type (Bybit unified/classic, OKX acctLv, Binance multi-assets, HL abstraction), position
   mode, UID — from the exchange's key permissions endpoint per its docs. A key with withdrawal rights is rejected by default
@@ -726,7 +1009,14 @@ async with AccountPool.from_file('accounts.yaml') as pool:
 - **Health** (`ex.health()`): maintenance status from the exchange's public endpoint (Binance, Bybit, OKX,
   KuCoin; BingX and Hyperliquid have no documented status — `unknown`), REST latency and clock
   skew from the server time request, REST and WS stream metrics, rate limiter state. Without keys — public
-  only; with keys — also a private probe (balance). `report.healthy` means it's OK to trade.
+  only; with keys — also a private probe (balance). `report.healthy` means it's OK to trade. The WS latency
+  «exchange → us» is measured by the clock offset at the midpoint of the time request (`TimeSync.clock_offset_ms`),
+  not by ccxt `timeDifference` (that one is for signing and is overstated by the response path: the latency came
+  out ≈ 0 or below zero). The limiter state is as of the call (`tokens`, `busy_s` — how long the next request would
+  wait). OKX: the status is requested at most once per 5 s per IP (a repeat comes from the cache) and leaves no debt
+  in the shared IP limiter (health() used to delay the next request from this IP by ~5 s). Clock offset and latency
+  come from a single probe: on a cold connection (a new client's first request) both are overstated — look at
+  `rest_latency_ms`.
 
 ## Data, testing, sync client
 

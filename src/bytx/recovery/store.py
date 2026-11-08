@@ -18,8 +18,27 @@ Recording (opt-in; without a store Exchange works as before — one check at the
 
 Open states (reconciled by :func:`bytx.recovery.recover`): ``pending``, ``unknown``,
 ``placed``. Key — ``(namespace, client_id)``; namespace — exchange, market, mode
-(live/demo/paper) and the store's ``account``: one file can serve several accounts if
-each has its own ``account``. TP/SL legs without a client_id (Bybit trading-stop) are not recorded.
+(live/demo/paper), the store's ``account`` and the API key fingerprint (a hash, no secrets): one file can serve
+several accounts — intents of different keys are not mixed. Rows of schemas 1–4 (namespace without the key
+fingerprint) are moved with :meth:`IntentStore.claim_legacy` (automatically when ``account`` is set). TP/SL legs
+without a client_id (Bybit trading-stop) are not recorded.
+
+Execution algorithms (``ex.algos``, schema 3): an algorithm start is a row in the ``algos`` table (id, kind, symbol,
+side, size; state ``running``) BEFORE the first child order, its end — ``finished`` (the algorithm canceled its working
+orders itself) or ``unclean`` (couldn't cancel, a child's outcome is unknown); the intent of every child order and
+TP/SL leg carries ``algo_id``. The algorithm's progress (filled, schedule, levels) is not stored: after a restart
+:func:`~bytx.recovery.recover` uses these records to cancel the working orders of unfinished algorithms, leaves
+position protection in place and closes the record (``recovered``).
+
+An algorithm's position protection plan (schema 4, column ``algos.plan``): bracket writes it to its record BEFORE the
+entry is sent — TP/SL prices, trigger type, position side, size, leg client_ids (:class:`AlgoRecord`). If the process
+died between the entry and the legs, :func:`~bytx.recovery.recover` (``protect=True``) places the missing legs from
+the plan on the current position of the plan's side (this is position protection, not resuming the algorithm). Legs
+placed by the algorithm itself, the algorithm canceled or protection failed — the plan is ``retired``: recovery places
+no legs for it. Schema 5 — ``intents.plan_retired``: an entry's TP/SL plan closed for recovery.
+
+One process per store file: a file lock ``<db>.lock`` (POSIX); another process gets :class:`~bytx.errors.ConfigError`
+on open. Rolling back to an SDK version with an older schema — ``tools/intents_downgrade.py``.
 
 Durability: WAL; ``durable=True`` (default) — ``synchronous=FULL``, a write survives both
 a process kill and a power loss; ``durable=False`` — ``NORMAL``: survives a process kill
@@ -40,21 +59,32 @@ if TYPE_CHECKING:
     from bytx.exchange import Exchange
     from bytx.types import Order
 
-SCHEMA_VERSION = 2   # 2: trigger_by column (TP/SL leg trigger type)
+# 2: trigger_by column (TP/SL leg trigger type); 3: algo_id of intents, algos table; 4: algos.plan (protection
+# plan); 5: intents.plan_retired
+SCHEMA_VERSION = 5
 OPEN_STATES = frozenset({'pending', 'unknown', 'placed'})
 STATES = frozenset({'pending', 'unknown', 'placed', 'final', 'rejected', 'abandoned'})
 _TERMINAL_STATUS = frozenset({'closed', 'canceled', 'expired', 'rejected'})
 _KIND_ROLES = {'take_profit': 'tp', 'stop_loss': 'sl', 'tp_sl': 'tp'}
+#: algorithm record states: ``running`` — running (or the process died), ``finished`` — finished, working orders
+#: canceled by the algorithm itself, ``unclean`` — finished, but working orders may remain (cancel failed, a child's
+#: outcome is unknown), ``recovered`` — working orders canceled by recovery
+ALGO_STATES = frozenset({'running', 'finished', 'unclean', 'recovered'})
+OPEN_ALGO_STATES = frozenset({'running', 'unclean'})
 
 # client_id of the entry whose TP/SL are being placed now (Exchange._protect) — parent of the legs
 _PARENT: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('bytx_intent_parent', default=None)
 # entry protection plan that the caller places separately after the entry (open_position, separate path)
 _PLAN: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar('bytx_intent_plan', default=None)
+# execution algorithm whose child order / leg is being placed now (ExecAlgo._bind)
+_ALGO: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('bytx_intent_algo', default=None)
 
 _COLUMNS = ('namespace', 'client_id', 'exchange', 'market_type', 'symbol', 'kind', 'side', 'type', 'amount',
             'price', 'trigger_price', 'reduce_only', 'params', 'tp_sl', 'role', 'position_id', 'level_id',
             'parent', 'state', 'order_id', 'status', 'filled', 'protected', 'attempts', 'note', 'created_ms',
-            'updated_ms', 'trigger_by')
+            'updated_ms', 'trigger_by', 'algo_id', 'plan_retired')
+_ALGO_COLUMNS = ('namespace', 'algo_id', 'kind', 'symbol', 'side', 'size', 'state', 'status', 'reason', 'note',
+                 'created_ms', 'updated_ms', 'plan')
 
 # request fields: match — a retry of the same order (re-creation), no match — a different order with the same client_id
 _REQUEST_COLUMNS = ('symbol', 'kind', 'side', 'type', 'amount', 'price', 'trigger_price', 'reduce_only', 'params')
@@ -66,10 +96,16 @@ CREATE TABLE IF NOT EXISTS intents (
     params TEXT, tp_sl TEXT, role TEXT, position_id TEXT, level_id INTEGER, parent TEXT,
     state TEXT NOT NULL, order_id TEXT, status TEXT, filled REAL, protected INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 1, note TEXT, created_ms INTEGER, updated_ms INTEGER, trigger_by TEXT,
-    PRIMARY KEY (namespace, client_id));
+    algo_id TEXT, plan_retired TEXT, PRIMARY KEY (namespace, client_id));
 CREATE INDEX IF NOT EXISTS intents_state ON intents (namespace, state);
 CREATE INDEX IF NOT EXISTS intents_order ON intents (namespace, order_id);
 CREATE INDEX IF NOT EXISTS intents_parent ON intents (namespace, parent);
+CREATE INDEX IF NOT EXISTS intents_algo ON intents (namespace, algo_id);
+CREATE TABLE IF NOT EXISTS algos (
+    namespace TEXT NOT NULL, algo_id TEXT NOT NULL, kind TEXT, symbol TEXT, side TEXT, size REAL,
+    state TEXT NOT NULL, status TEXT, reason TEXT, note TEXT, created_ms INTEGER, updated_ms INTEGER, plan TEXT,
+    PRIMARY KEY (namespace, algo_id));
+CREATE INDEX IF NOT EXISTS algos_state ON algos (namespace, state);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 INSERT OR IGNORE INTO meta (key, value) VALUES ('schema', '{SCHEMA_VERSION}');
 """
@@ -84,12 +120,16 @@ class Intent:
     entry (Binance/HL), ``protected`` — they have been placed. ``kind``: 'order' / 'take_profit' /
     'stop_loss' / 'tp_sl'; ``parent`` — the entry's client_id for a TP/SL leg; ``role`` /
     ``position_id`` / ``level_id`` — position journal binding (``journal.bind``); ``trigger_by`` —
-    TP/SL leg trigger type ('mark' / 'last'; re-created with the same), None for an entry.
+    TP/SL leg trigger type ('mark' / 'last'; re-created with the same), None for an entry; ``algo_id`` — the
+    execution algorithm (``ex.algos``) whose child order or leg this is, otherwise None.
 
     Entry protection plan (``tp_sl``): ``stop_loss`` / ``take_profit`` — prices, ``trigger_by``; for
     :meth:`Exchange.open_position` also ``mode`` ('attached' — SL goes in the entry request,
     'separate' — as a separate order afterwards), ``side`` — position side, ``stop_client_id`` —
     the stop's client_id if it is sent to the exchange (otherwise None: the stop is looked up by kind, side and price).
+    ``plan_retired`` (schema 5) — the plan is closed, recover places no legs for it: 'protection_failed'
+    (ProtectionNotPlaced was reported to the caller), 'expired' (older than ``protect_max_age``), 'superseded' (there
+    is a newer entry of the same side).
     """
 
     namespace: str
@@ -120,6 +160,8 @@ class Intent:
     created_ms: int = 0
     updated_ms: int = 0
     trigger_by: Optional[str] = None
+    algo_id: Optional[str] = None
+    plan_retired: Optional[str] = None
 
     @property
     def is_open(self) -> bool:
@@ -159,6 +201,42 @@ class Intent:
 _OPAQUE = '__bytx_opaque__'   # params had a non-serializable value — retrying the request is impossible
 
 
+@dataclass(frozen=True, slots=True)
+class AlgoRecord:
+    """Record of an execution algorithm (``ex.algos``) — without progress: what was started and how it ended.
+
+    ``state`` — :data:`ALGO_STATES`; ``status`` / ``reason`` — the algorithm's result (``AlgoResult``), None while it
+    runs; ``size`` — the requested size (base; None for trailing without ``size``); ``note`` — what recovery did.
+
+    ``plan`` — the position protection plan written by the algorithm before its first child order (bracket; None for
+    the others and for schema 3 records): ``side`` — position side ('long' / 'short'), ``take_profit`` /
+    ``stop_loss`` — trigger prices, ``trigger_by`` — 'mark' / 'last' (None — the exchange default), ``size`` — the
+    algorithm size (base; legs are placed for the size filled by the entry, no more than the position),
+    ``take_profit_client_id`` / ``stop_loss_client_id`` — client_ids of the legs recovery places (the same on every
+    recover(): looked up before placing); ``retired`` — the algorithm closed the plan itself: 'protected' (legs
+    placed), a ``cancel()`` reason, 'protection_failed' / 'keep' (``on_protect_fail``) — no legs are placed for it.
+    """
+
+    namespace: str
+    algo_id: str
+    kind: str
+    symbol: str
+    side: Optional[str]
+    size: Optional[float]
+    state: str
+    status: Optional[str] = None
+    reason: Optional[str] = None
+    note: Optional[str] = None
+    created_ms: int = 0
+    updated_ms: int = 0
+    plan: Optional[dict] = None
+
+    @property
+    def is_open(self) -> bool:
+        """The algorithm didn't finish by itself (``running``) or left working orders (``unclean``)."""
+        return self.state in OPEN_ALGO_STATES
+
+
 def _json(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -185,10 +263,69 @@ def _num(value: Any) -> Optional[float]:
     return f if math.isfinite(f) else None
 
 
-def namespace_of(ex: Any, account: str = '') -> str:
-    """Exchange intent namespace: ``exchange:market:mode:account`` (mode — live/demo/paper)."""
+def legacy_namespace_of(ex: Any, account: str = '') -> str:
+    """Namespace of schemas 1–4: ``exchange:market:mode:account`` — without the key fingerprint."""
     mode = 'paper' if getattr(ex, 'is_paper', False) else ('demo' if getattr(ex, 'demo', False) else 'live')
     return f'{ex.name}:{ex.market_type}:{mode}:{account}'
+
+
+def key_fingerprint(ex: Any) -> str:
+    """Exchange API key fingerprint (a hash, :func:`bytx.hubs.account_fingerprint`, no secrets); paper without a key
+    — 'paper', no key — 'nokey'."""
+    cc = getattr(ex, '_ex', None) or getattr(ex, 'ccxt', None)
+    creds = {'api_key': getattr(cc, 'apiKey', None) or None, 'wallet_address': getattr(cc, 'walletAddress', None) or None}
+    if not any(creds.values()):
+        return 'paper' if getattr(ex, 'is_paper', False) else 'nokey'
+    from bytx.hubs import account_fingerprint
+    return account_fingerprint(str(ex.name), bool(getattr(ex, 'demo', False)), creds)
+
+
+def namespace_of(ex: Any, account: str = '') -> str:
+    """Exchange intent namespace: ``exchange:market:mode:account:key fingerprint`` (mode — live/demo/paper). The
+    fingerprint tells API keys apart: AccountPool(intents=store) and a shared file of several accounts do not mix
+    intents — recover of account A does not touch the intents of B."""
+    return f'{legacy_namespace_of(ex, account)}:{key_fingerprint(ex)}'
+
+
+# One process per store file: a file lock <db>.lock — per process, shared by all IntentStore objects of this process on
+# the same file (a counter); another process gets ConfigError on open.
+_LOCKS: dict[str, list] = {}       # absolute path → [fd, number of open IntentStore objects]
+
+
+def _acquire_lock(path: str) -> Optional[str]:
+    import os
+    if path == ':memory:' or path.startswith('file:'):
+        return None
+    try:
+        import fcntl
+    except ImportError:            # Windows: no lock — one process per file is up to the deployment (README)
+        return None
+    key = os.path.abspath(path)
+    held = _LOCKS.get(key)
+    if held is not None:
+        held[1] += 1
+        return key
+    fd = os.open(key + '.lock', os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        from bytx.errors import ConfigError
+        raise ConfigError(f'intent store {path} is open in another process (lock {key}.lock): one process per file — '
+                          f'deploy stop-first, different processes — different files', details={'path': path})
+    _LOCKS[key] = [fd, 1]
+    return key
+
+
+def _release_lock(key: Optional[str]) -> None:
+    import os
+    held = _LOCKS.get(key) if key else None
+    if held is None:
+        return
+    held[1] -= 1
+    if held[1] <= 0:
+        del _LOCKS[key]  # type: ignore[arg-type]
+        os.close(held[0])          # closing the descriptor releases the flock
 
 
 def now_ms(ex: Any) -> int:
@@ -209,6 +346,12 @@ class IntentStore:
     def __init__(self, path: Union[str, Any] = ':memory:', *, account: str = '', durable: bool = True) -> None:
         self.path = str(path)
         self.account = str(account)
+        self._lock_key: Optional[str] = None
+        self._lock_key = _acquire_lock(self.path)
+        # algorithms running with this store in this process: recovery doesn't touch them (the live algorithm
+        # manages their orders); a new process opens the store anew — the set is empty
+        self.running_algos: set[str] = set()
+        self._claimed: set[str] = set()
         self._db = sqlite3.connect(self.path, isolation_level=None, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         if self.path != ':memory:':
@@ -217,8 +360,10 @@ class IntentStore:
         row = self._schema()
         if row is not None and row > SCHEMA_VERSION:
             from bytx.errors import ConfigError
+            self._db.close()
+            _release_lock(self._lock_key)
             raise ConfigError(f'intent store {self.path}: schema {row} is newer than supported '
-                              f'{SCHEMA_VERSION} — upgrade bytx')
+                              f'{SCHEMA_VERSION} — upgrade bytx (rolling back the SDK: tools/intents_downgrade.py)')
         if row is not None and row < SCHEMA_VERSION:
             self._migrate()
         self._db.executescript(_DDL)
@@ -231,13 +376,23 @@ class IntentStore:
         return int(row[0]) if row is not None else None
 
     def _migrate(self) -> None:
-        """Schema 1 → 2 in place, in one transaction (another process may have migrated first —
-        the column is checked inside): ``trigger_by`` on intents, existing rows — NULL."""
+        """Schema 1/2/3/4 → 5 in place, in one transaction (another process may have migrated first —
+        the columns are checked inside): ``trigger_by`` (2) and ``algo_id`` (3) on intents, ``plan`` (4) on algorithm
+        records, ``plan_retired`` (5) on intents, existing rows — NULL (no plan — the previous recovery); the ``algos``
+        table of schemas 1/2 is created by the DDL after the migration (already with ``plan``). The migration does not
+        rename row namespaces (it does not know the key fingerprint) — see :meth:`IntentStore.claim_legacy`."""
         self._db.execute('BEGIN IMMEDIATE')
         try:
             cols = {r[1] for r in self._db.execute('PRAGMA table_info(intents)')}
             if 'trigger_by' not in cols:
                 self._db.execute('ALTER TABLE intents ADD COLUMN trigger_by TEXT')
+            if 'algo_id' not in cols:
+                self._db.execute('ALTER TABLE intents ADD COLUMN algo_id TEXT')
+            if 'plan_retired' not in cols:
+                self._db.execute('ALTER TABLE intents ADD COLUMN plan_retired TEXT')
+            algo_cols = {r[1] for r in self._db.execute('PRAGMA table_info(algos)')}
+            if algo_cols and 'plan' not in algo_cols:
+                self._db.execute('ALTER TABLE algos ADD COLUMN plan TEXT')
             self._db.execute("UPDATE meta SET value=? WHERE key='schema'", (str(SCHEMA_VERSION),))
             self._db.execute('COMMIT')
         except BaseException:
@@ -247,7 +402,46 @@ class IntentStore:
     # ─── public API ──────────────────────────────────────────────────────
 
     def namespace(self, ex: Any) -> str:
-        return namespace_of(ex, self.account)
+        ns = namespace_of(ex, self.account)
+        if self.account and ns not in self._claimed:
+            # the user separated accounts (account=…): rows of schemas 1–4 of this account are theirs, claimed once
+            self._claimed.add(ns)
+            self.claim_legacy(ex)
+        return ns
+
+    def claim_legacy(self, ex: Any, namespace: Optional[str] = None) -> int:
+        """Move intents and algorithm records from the namespace without the key fingerprint (schemas 1–4,
+        :func:`legacy_namespace_of`) or from ``namespace`` (e.g. of the previous key after a key change) into the
+        namespace of Exchange ``ex``. Returns the number of moved intents; a client_id already taken in the target
+        namespace is not moved. Recorded in meta per source."""
+        src = namespace or legacy_namespace_of(ex, self.account)
+        dst = namespace_of(ex, self.account)
+        if src == dst:
+            return 0
+        self._db.execute('BEGIN IMMEDIATE')
+        try:
+            cur = self._db.execute('UPDATE OR IGNORE intents SET namespace=? WHERE namespace=?', (dst, src))
+            self._db.execute('UPDATE OR IGNORE algos SET namespace=? WHERE namespace=?', (dst, src))
+            self._db.execute('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', (f'claimed:{src}', dst))
+            self._db.execute('COMMIT')
+        except BaseException:
+            self._db.execute('ROLLBACK')
+            raise
+        return int(cur.rowcount or 0)
+
+    def legacy_intents(self, ex: Any) -> list[Intent]:
+        """Open intents of schemas 1–4 of this Exchange without the key fingerprint (not claimed by
+        :meth:`claim_legacy`)."""
+        src = legacy_namespace_of(ex, self.account)
+        st = sorted(OPEN_STATES)
+        rows = self._db.execute(f"SELECT * FROM intents WHERE namespace=? AND state IN ({','.join('?' * len(st))}) "
+                                'ORDER BY created_ms, rowid', (src, *st)).fetchall()
+        return [_intent(r) for r in rows]
+
+    def _retire_plan(self, ex: Any, client_id: str, reason: str) -> None:
+        """The entry's protection plan is closed (schema 5): recover places no legs for it."""
+        self._db.execute('UPDATE intents SET plan_retired=?, updated_ms=? WHERE namespace=? AND client_id=?',
+                         (reason, now_ms(ex), self.namespace(ex), str(client_id)))
 
     def get(self, ex: Any, client_id: str) -> Optional[Intent]:
         """Intent by client_id (in the namespace of Exchange ``ex``)."""
@@ -280,6 +474,37 @@ class IntentStore:
                                 (self.namespace(ex), parent)).fetchall()
         return [_intent(r) for r in rows]
 
+    def algos(self, ex: Any, *, states: Optional[Iterable[str]] = None) -> list[AlgoRecord]:
+        """Execution algorithm records of Exchange ``ex`` (all by default) by start time."""
+        sql = 'SELECT * FROM algos WHERE namespace=?'
+        args: list[Any] = [self.namespace(ex)]
+        if states is not None:
+            st = sorted(set(states))
+            sql += f" AND state IN ({','.join('?' * len(st))})"
+            args += st
+        rows = self._db.execute(sql + ' ORDER BY created_ms, rowid', args).fetchall()
+        return [_algo(r) for r in rows]
+
+    def algo_record(self, ex: Any, algo_id: str) -> Optional[AlgoRecord]:
+        """Algorithm record by id (in the namespace of Exchange ``ex``)."""
+        row = self._db.execute('SELECT * FROM algos WHERE namespace=? AND algo_id=?',
+                               (self.namespace(ex), str(algo_id))).fetchone()
+        return _algo(row) if row is not None else None
+
+    def algo_children(self, ex: Any, algo_id: str) -> list[Intent]:
+        """Intents of the child orders and TP/SL legs of algorithm ``algo_id``."""
+        rows = self._db.execute('SELECT * FROM intents WHERE namespace=? AND algo_id=? ORDER BY created_ms, rowid',
+                                (self.namespace(ex), str(algo_id))).fetchall()
+        return [_intent(r) for r in rows]
+
+    def mark_algo(self, ex: Any, algo_id: str, state: str, *, note: Optional[str] = None) -> None:
+        """Changes the algorithm record state (``state`` from :data:`ALGO_STATES`)."""
+        if state not in ALGO_STATES:
+            from bytx.errors import ConfigError
+            raise ConfigError(f'algorithm state: one of {sorted(ALGO_STATES)}, not {state!r}')
+        self._db.execute('UPDATE algos SET state=?, note=COALESCE(?, note), updated_ms=? '
+                         'WHERE namespace=? AND algo_id=?', (state, note, now_ms(ex), self.namespace(ex), str(algo_id)))
+
     def mark(self, ex: Any, client_id: str, state: str, *, order_id: Optional[str] = None,
              status: Optional[str] = None, filled: Optional[float] = None, note: Optional[str] = None) -> None:
         """Changes the intent state (``state`` from :data:`STATES`); None fields are left unchanged."""
@@ -292,9 +517,10 @@ class IntentStore:
             (state, order_id, status, filled, note, now_ms(ex), self.namespace(ex), str(client_id)))
 
     def adopt(self, ex: Any, order: 'Order', *, kind: str = 'order', role: Optional[str] = None,
-              position_id: Optional[str] = None, note: str = 'adopted', parent: Optional[str] = None) -> None:
+              position_id: Optional[str] = None, note: str = 'adopted', parent: Optional[str] = None,
+              algo_id: Optional[str] = None) -> None:
         """Records a live order without an intent (found during recovery by the bot tag; ``parent`` —
-        the entry whose protection it provides)."""
+        the entry whose protection it provides; ``algo_id`` — the algorithm whose leg it is)."""
         if not order.client_id:
             return
         ts = now_ms(ex)
@@ -306,18 +532,24 @@ class IntentStore:
             'params': '{}', 'tp_sl': None, 'role': role, 'position_id': position_id, 'level_id': None,
             'parent': parent, 'state': _state_of(order), 'order_id': order.id, 'status': order.status,
             'filled': _num(order.filled_contracts), 'protected': 1, 'attempts': 0, 'note': note,
-            'created_ms': order.timestamp or ts, 'updated_ms': ts, 'trigger_by': None}, replace=False)
+            'created_ms': order.timestamp or ts, 'updated_ms': ts, 'trigger_by': None, 'algo_id': algo_id, 'plan_retired': None},
+            replace=False)
 
     def prune(self, ex: Any, *, older_than_ms: int) -> int:
-        """Deletes closed intents (final / rejected / abandoned) updated earlier than
-        ``older_than_ms``. Returns the number deleted."""
+        """Deletes closed intents (final / rejected / abandoned) and records of finished algorithms
+        (finished / recovered) updated earlier than ``older_than_ms``. Returns the number of deleted rows."""
         cur = self._db.execute(
             "DELETE FROM intents WHERE namespace=? AND state IN ('final','rejected','abandoned') AND updated_ms<?",
             (self.namespace(ex), int(older_than_ms)))
-        return int(cur.rowcount or 0)
+        algos = self._db.execute(
+            "DELETE FROM algos WHERE namespace=? AND state IN ('finished','recovered') AND updated_ms<?",
+            (self.namespace(ex), int(older_than_ms)))
+        return int(cur.rowcount or 0) + int(algos.rowcount or 0)
 
     def close(self) -> None:
         self._db.close()
+        _release_lock(self._lock_key)
+        self._lock_key = None
 
     # ─── Exchange recording points ──────────────────────────────────────────────
 
@@ -330,6 +562,16 @@ class IntentStore:
             yield
         finally:
             _PARENT.reset(token)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def algo(algo_id: Optional[str]) -> Iterator[None]:
+        """Context: orders and TP/SL legs inside are children of algorithm ``algo_id`` (the ``algo_id`` column)."""
+        token = _ALGO.set(algo_id)
+        try:
+            yield
+        finally:
+            _ALGO.reset(token)
 
     @staticmethod
     @contextlib.contextmanager
@@ -370,7 +612,35 @@ class IntentStore:
             'level_id': level_id, 'parent': _PARENT.get() if kind != 'order' else None, 'state': 'pending',
             'order_id': None, 'status': None, 'filled': None, 'protected': 0, 'attempts': 1, 'note': None,
             'created_ms': ts, 'updated_ms': ts,
-            'trigger_by': extra.get('trigger_by') if kind != 'order' else None})
+            'trigger_by': extra.get('trigger_by') if kind != 'order' else None, 'algo_id': _ALGO.get(),
+            'plan_retired': None})
+
+    def _on_algo_started(self, ex: 'Exchange', algo_id: str, kind: str, symbol: str, side: Optional[str],
+                         size: Optional[float]) -> None:
+        """Algorithm started — a ``running`` record before the first child order."""
+        ts = now_ms(ex)
+        row = {'namespace': self.namespace(ex), 'algo_id': str(algo_id), 'kind': kind, 'symbol': symbol, 'side': side,
+               'size': _num(size), 'state': 'running', 'status': None, 'reason': None, 'note': None,
+               'created_ms': ts, 'updated_ms': ts, 'plan': None}
+        cols = ','.join(_ALGO_COLUMNS)
+        self._db.execute(f"INSERT OR REPLACE INTO algos ({cols}) VALUES ({','.join('?' * len(_ALGO_COLUMNS))})",
+                         tuple(row[c] for c in _ALGO_COLUMNS))
+        self.running_algos.add(str(algo_id))
+
+    def _on_algo_plan(self, ex: 'Exchange', algo_id: str, plan: Optional[dict]) -> None:
+        """The algorithm's position protection plan (see :class:`AlgoRecord`) — before the first child order; again —
+        with ``retired`` (the algorithm handles the protection itself: recover() places no legs)."""
+        self._db.execute('UPDATE algos SET plan=?, updated_ms=? WHERE namespace=? AND algo_id=?',
+                         (_json(plan), now_ms(ex), self.namespace(ex), str(algo_id)))
+
+    def _on_algo_finished(self, ex: 'Exchange', algo_id: str, status: str, reason: Optional[str], *,
+                          clean: bool, note: Optional[str] = None) -> None:
+        """Algorithm finished: ``finished`` (working orders canceled) or ``unclean`` (they may remain)."""
+        self.running_algos.discard(str(algo_id))
+        self._db.execute('UPDATE algos SET state=?, status=?, reason=?, note=COALESCE(?, note), updated_ms=? '
+                         "WHERE namespace=? AND algo_id=? AND state='running'",
+                         ('finished' if clean else 'unclean', status, reason, note, now_ms(ex), self.namespace(ex),
+                          str(algo_id)))
 
     def _on_placed(self, ex: 'Exchange', order: 'Order', client_id: Optional[str] = None) -> None:
         cid = client_id or order.client_id
@@ -444,8 +714,10 @@ class IntentStore:
     # ─── internal ─────────────────────────────────────────────────────────
 
     def _write_intent(self, row: dict) -> None:
-        """New intent; client_id already exists — same request (retry during recovery): state
-        reset; different request — previous one closed: overwrite, open: ConfigError before any network call."""
+        """New intent; client_id already exists: the previous one is open and the request is the same (retry during
+        recovery) — state reset, attempt counter; the previous one is closed — full overwrite (a new order with the same
+        client_id: the previous entry's protection plan, protected, filled are not carried over); open with a different
+        request — ConfigError before any network call."""
         cols = ','.join(_COLUMNS)
         marks = ','.join('?' * len(_COLUMNS))
         cur = self._db.execute(f'INSERT INTO intents ({cols}) VALUES ({marks}) '
@@ -454,16 +726,27 @@ class IntentStore:
             return
         old = self._db.execute('SELECT * FROM intents WHERE namespace=? AND client_id=?',
                                (row['namespace'], row['client_id'])).fetchone()
-        if old is None or all(old[c] == row[c] for c in _REQUEST_COLUMNS):
+        if old is not None and old['state'] in OPEN_STATES and all(old[c] == row[c] for c in _REQUEST_COLUMNS):
             self._upsert(row, replace=True)
             return
-        if old['state'] in OPEN_STATES:
+        if old is not None and old['state'] in OPEN_STATES:
             from bytx.errors import ConfigError
             raise ConfigError(f"client_id {row['client_id']} already belongs to an intent in state {old['state']} with a different "
                               f'request: the previous order outcome is not closed — a new client_id is required',
                               details={'client_id': row['client_id'], 'state': old['state']})
-        self._db.execute(f'INSERT OR REPLACE INTO intents ({cols}) VALUES ({marks})',
-                         tuple(row[c] for c in _COLUMNS))
+        # a closed intent — full overwrite; legs of the previous entry are re-parented to "cid#created_ms" of the
+        # previous record: legs of the new entry do not see them, the history of the previous entry is kept
+        self._db.execute('BEGIN IMMEDIATE')
+        try:
+            if old is not None:
+                self._db.execute('UPDATE intents SET parent=? WHERE namespace=? AND parent=?',
+                                 (f"{row['client_id']}#{old['created_ms']}", row['namespace'], row['client_id']))
+            self._db.execute(f'INSERT OR REPLACE INTO intents ({cols}) VALUES ({marks})',
+                             tuple(row[c] for c in _COLUMNS))
+            self._db.execute('COMMIT')
+        except BaseException:
+            self._db.execute('ROLLBACK')
+            raise
 
     def _upsert(self, row: dict, *, replace: bool) -> None:
         cols = ','.join(_COLUMNS)
@@ -494,7 +777,17 @@ def _intent(row: sqlite3.Row) -> Intent:
         position_id=row['position_id'], level_id=row['level_id'], parent=row['parent'],
         order_id=row['order_id'], status=row['status'], filled=row['filled'], protected=bool(row['protected']),
         attempts=int(row['attempts']), note=row['note'], created_ms=int(row['created_ms'] or 0),
-        updated_ms=int(row['updated_ms'] or 0), trigger_by=row['trigger_by'])
+        updated_ms=int(row['updated_ms'] or 0), trigger_by=row['trigger_by'], algo_id=row['algo_id'],
+        plan_retired=row['plan_retired'])
 
 
-__all__ = ['Intent', 'IntentStore', 'OPEN_STATES', 'SCHEMA_VERSION', 'STATES', 'namespace_of', 'now_ms']
+def _algo(row: sqlite3.Row) -> AlgoRecord:
+    return AlgoRecord(
+        namespace=row['namespace'], algo_id=row['algo_id'], kind=row['kind'], symbol=row['symbol'], side=row['side'],
+        size=row['size'], state=row['state'], status=row['status'], reason=row['reason'], note=row['note'],
+        created_ms=int(row['created_ms'] or 0), updated_ms=int(row['updated_ms'] or 0),
+        plan=json.loads(row['plan']) if row['plan'] else None)
+
+
+__all__ = ['ALGO_STATES', 'AlgoRecord', 'Intent', 'IntentStore', 'OPEN_ALGO_STATES', 'OPEN_STATES', 'SCHEMA_VERSION',
+           'STATES', 'key_fingerprint', 'legacy_namespace_of', 'namespace_of', 'now_ms']

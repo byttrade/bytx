@@ -72,6 +72,17 @@ def attached_sl(ccxt_id: str) -> tuple[bool, Optional[str], bool, str]:
     return bool(ok), url, bool(verified), str(note)
 
 
+async def price_band(ex: Any, symbol: str) -> Optional[tuple[Optional[float], Optional[float]]]:
+    """The exchange's order price band now — (highest buy price, lowest sell price) per the docs
+    (``exchanges/<exchange>/limits.py`` ``price_band``): the exchange rejects an order beyond the band entirely.
+    OKX has it (GET /api/v5/public/price-limit, error 51006); others — None (no band in the SDK)."""
+    module = _MODULES.get(getattr(getattr(ex, 'ccxt', None), 'id', '') or '')
+    if module is None:
+        return None
+    fn = getattr(importlib.import_module(f'{__name__}.{module}.limits'), 'price_band', None)
+    return await fn(ex, symbol) if fn is not None else None
+
+
 def tp_sl_in_place(ccxt_id: str) -> bool:
     """The exchange replaces a full-position SL in place (a new placement replaces the previous one): Bybit trading-stop
     Full. Moving the stop then goes through :meth:`Exchange.modify_tp_sl`, not place + cancel previous."""
@@ -79,6 +90,24 @@ def tp_sl_in_place(ccxt_id: str) -> bool:
     if module is None:
         return False
     return bool(getattr(importlib.import_module(f'{__name__}.{module}.tp_sl'), 'SL_IN_PLACE', False))
+
+
+def tp_sl_modify(ccxt_id: str) -> tuple[Optional[tuple], tuple[bool, Optional[str], bool, str]]:
+    """How to move a TP/SL without a window without a stop (:meth:`Exchange.modify_tp_sl`) — per the docs,
+    ``exchanges/<exchange>/tp_sl.py``: (``MODIFY_IN_PLACE``, ``TWO_SL``).
+
+    ``MODIFY_IN_PLACE`` — (docs URL, verified, note) of an in-place trigger amend (OKX amend-algos, Bybit
+    trading-stop Full, Bitget modify-tpsl-order) or None. ``TWO_SL`` — (allowed, URL, verified, note): two
+    TP/SL with a size on one position coexist → make-before-break (the new one, then removing the previous one);
+    False — cancel, then the new one (a window without a stop — the request time). Unknown exchange — (None, (False, …)).
+    """
+    module = _MODULES.get(ccxt_id)
+    if module is None:
+        return None, (False, None, False, 'no data')
+    mod = importlib.import_module(f'{__name__}.{module}.tp_sl')
+    in_place = getattr(mod, 'MODIFY_IN_PLACE', None)
+    ok, url, verified, note = getattr(mod, 'TWO_SL', (False, None, False, 'no data'))
+    return (tuple(in_place) if in_place else None), (bool(ok), url, bool(verified), str(note))
 
 
 # SDK order status → normalized TP/SL state when the exchange has no such field
@@ -110,26 +139,33 @@ def tp_sl_fills_by_other_order(ccxt_id: str) -> bool:
         getattr(importlib.import_module(f'{__name__}.{module}.tp_sl'), 'FILL_ORDER_ID', ()))
 
 
-def tp_sl_fill_order_id(ccxt_id: str, info: Any) -> Optional[str]:
-    """Id of the order that filled a triggered TP/SL, if the exchange fills it with a DIFFERENT order and
-    reports that id in the TP/SL record (``exchanges/<exchange>/tp_sl.py`` ``FILL_ORDER_ID``): Binance
-    actualOrderId, OKX ordIdList, Gate trade_id, MEXC placeOrderId, HTX relation_order_id.
-    None — not triggered, the exchange fills under the same id, or the TP/SL record has no link."""
+def tp_sl_fill_order_ids(ccxt_id: str, info: Any) -> tuple[str, ...]:
+    """Ids of the orders that filled a triggered TP/SL, if the exchange fills it with a DIFFERENT order and reports
+    them in the TP/SL record (``exchanges/<exchange>/tp_sl.py`` ``FILL_ORDER_ID``): Binance actualOrderId, OKX ordIdList
+    (Get algo order details: «There will be multiple order IDs when there is TP/SL splitting order» — there may be
+    several), Gate trade_id, MEXC placeOrderId, HTX relation_order_id. Empty — not triggered, the exchange fills under
+    the same id, or the TP/SL record has no link. The first field with a non-empty value; order — as the exchange's."""
     module = _MODULES.get(ccxt_id)
     if module is None or not isinstance(info, dict):
-        return None
+        return ()
     fields = getattr(importlib.import_module(f'{__name__}.{module}.tp_sl'), 'FILL_ORDER_ID', ())
     for name in fields:
         value = info.get(name)
-        if isinstance(value, list):
-            value = value[0] if value else None
-        found = _id_or_none(value)
-        if found is not None:
-            return found
-    return None
+        found = [_id_or_none(v) for v in (value if isinstance(value, list) else [value])]
+        ids = tuple(dict.fromkeys(i for i in found if i is not None))
+        if ids:
+            return ids
+    return ()
 
 
-__all__ = ['apply_ccxt_fixes', 'tp_sl_trigger_by', 'tp_sl_state', 'tp_sl_fill_order_id', 'tp_sl_fills_by_other_order']
+def tp_sl_fill_order_id(ccxt_id: str, info: Any) -> Optional[str]:
+    """The first of :func:`tp_sl_fill_order_ids` (the fill order of a triggered TP/SL) or None."""
+    ids = tp_sl_fill_order_ids(ccxt_id, info)
+    return ids[0] if ids else None
+
+
+__all__ = ['apply_ccxt_fixes', 'tp_sl_trigger_by', 'tp_sl_state', 'tp_sl_fill_order_id', 'tp_sl_fill_order_ids',
+           'tp_sl_fills_by_other_order']
 
 
 def _matching(ccxt_id: str, name: str) -> tuple[str, Optional[str], bool, str]:

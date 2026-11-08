@@ -7,10 +7,21 @@ placing Post Only orders, and transferring funds to trading accounts are back af
 service (in batches of accounts) 9 : Trading service (in batches of products) 10 : Spread trading
 11 : Copy trading 99 : Others»; ``env`` — «1 : Production Trading 2 : Demo Trading».
 Ongoing work: 5 → ``maintenance``; 8/9 (some accounts/products), 0, pre_open and others → ``degraded``.
+
+Rate: OKX has a limit per endpoint («The rate limit is different for each endpoint. You can find the limit for each
+endpoint from the endpoint details», Rate Limits docs). ccxt 4.4.65 charges the status with cost 50 (×103 ms = 1
+request / 5 s) in the SHARED IP limiter — after health() any next request from this IP (orders of all accounts)
+waited ~5 s (demo 2026-11-04). Here: cost 1 in the shared limiter, and the endpoint's own rate — the result is
+cached for :data:`MIN_INTERVAL` s per IP key and environment (concurrent calls — one request; a repeat from the cache
+has ``probed=False``: it does not prove the exchange is reachable).
 """
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+import dataclasses
+import time
+import weakref
+from typing import Any, Callable
 
 from bytx.health import MaintenanceEvent, Status, StatusResult, worst
 
@@ -52,5 +63,29 @@ def parse(response: dict, *, demo: bool) -> StatusResult:
     return StatusResult(status, DOC, events)
 
 
+#: not more often than once per this many seconds per IP key and environment (ccxt: cost 50 × rateLimit 103 ms)
+MIN_INTERVAL = 5.0
+#: monotonic clock of the cache (tests replace it)
+clock: Callable[[], float] = time.monotonic
+# loop → (limiter key, demo) → [lock, (time, StatusResult) | None]; the lock is bound to the loop
+_cache: 'weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict]' = weakref.WeakKeyDictionary()
+
+
+def reset_cache() -> None:
+    _cache.clear()
+
+
 async def system_status(ex: Any) -> StatusResult:
-    return parse(await ex._call(ex.ccxt.publicGetSystemStatus), demo=ex.demo)
+    by_key = _cache.setdefault(asyncio.get_running_loop(), {})
+    slot = by_key.setdefault((ex.rate_limit_key, bool(ex.demo)), [asyncio.Lock(), None])
+    async with slot[0]:
+        hit = slot[1]
+        if hit is not None and clock() - hit[0] < MIN_INTERVAL:
+            age = clock() - hit[0]
+            return dataclasses.replace(hit[1], probed=False,
+                                       message=f'from cache {age:.1f} s (the status endpoint — at most once per '
+                                               f'{MIN_INTERVAL:g} s)')
+        response = await ex._call(ex.ccxt.request, 'system/status', 'public', 'GET', {}, None, None, {'cost': 1})
+        result = parse(response, demo=ex.demo)
+        slot[1] = (clock(), result)
+        return result

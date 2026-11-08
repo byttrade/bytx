@@ -281,9 +281,16 @@ class Streams:
         return self.exchange.name
 
     def exchange_now_ms(self) -> float:
-        """Local time adjusted to the exchange clock (ccxt timeDifference = local - server)."""
+        """Local time adjusted to the exchange clock: the clock offset by the time request midpoint
+        (``bytxClockOffset``, :class:`~bytx.net.timesync.TimeSync`); without it — ccxt timeDifference
+        (local after the response − server: overstated by the response path, the WS latency by it is
+        understated by ~half the RTT)."""
         options = getattr(self.ccxt, 'options', None)
-        diff = options.get('timeDifference') if isinstance(options, dict) else None
+        diff = None
+        if isinstance(options, dict):
+            diff = options.get('bytxClockOffset')
+            if diff is None:
+                diff = options.get('timeDifference')
         return time.time() * 1000 - (diff or 0)
 
     # ─── public streams ───────────────────────────────────────────────────

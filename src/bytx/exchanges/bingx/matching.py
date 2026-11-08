@@ -6,7 +6,9 @@ liquidity. Mode: 'reject' — request rejected (no order), 'cancel' — order cr
 """
 from __future__ import annotations
 
-POST_ONLY_CROSS = ('reject', 'https://bingx-api.github.io/docs-v3/#/en/Swap/Trades%20Endpoints/Place%20order', False,
-                   'PostOnly crossing — docs text not retrieved, as before (reject), to verify on demo')
+# Error codes docs-v3: 101215 «Post Only order was cancelled because it would have been filled immediately»;
+# demo 2026-11-04: the response to the Place order itself is error 101215, no order id — rejection
+POST_ONLY_CROSS = ('reject', 'https://bingx-api.github.io/docs-v3/', True,
+                   '101215 on placement (Error codes docs + demo 2026-11-04): no order')
 MARKET_NO_LIQUIDITY = ('reject', 'https://bingx-api.github.io/docs-v3/#/en/Swap/Trades%20Endpoints/Place%20order',
                        False, 'not described — as before (reject), to verify on demo')

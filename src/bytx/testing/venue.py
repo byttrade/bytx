@@ -120,6 +120,7 @@ class FakeVenue:
             c.privateMixPostV2MixOrderPlaceTpslOrder = self.bitget_place_tpsl
             c.privateMixGetV2MixOrderOrdersPlanPending = self.bitget_plan_pending
             c.privateMixPostV2MixOrderCancelPlanOrder = self.bitget_cancel_plan
+            c.privateMixGetV2MixOrderOrdersPlanHistory = self.bitget_plan_history
         elif c.id == 'gate':
             c.privateFuturesPostSettlePriceOrders = self.gate_price_order
             c.privateFuturesGetSettlePriceOrders = self.gate_price_orders
@@ -293,6 +294,15 @@ class FakeVenue:
     async def bitget_plan_pending(self, req: Any = None) -> dict:
         req = dict(req or {})
         rows = [dict(p) for p in self.plans.values() if p['planStatus'] == 'not_trigger'
+                and (not req.get('symbol') or p['symbol'] == req['symbol'])]
+        return {'code': '00000', 'msg': 'success', 'requestTime': 1, 'data': {'entrustedList': rows, 'endId': None}}
+
+    async def bitget_plan_history(self, req: Any = None) -> dict:
+        # Get History Trigger Order: fired / removed (planStatus executed / cancelled), by orderId
+        req = dict(req or {})
+        status = {'cancel': 'cancelled', 'executed': 'executed', 'cancelled': 'cancelled'}
+        rows = [dict(p, planStatus=status[p['planStatus']]) for p in self.plans.values()
+                if p['planStatus'] in status and (not req.get('orderId') or p['orderId'] == str(req['orderId']))
                 and (not req.get('symbol') or p['symbol'] == req['symbol'])]
         return {'code': '00000', 'msg': 'success', 'requestTime': 1, 'data': {'entrustedList': rows, 'endId': None}}
 

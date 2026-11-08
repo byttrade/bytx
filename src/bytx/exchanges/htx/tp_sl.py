@@ -27,6 +27,11 @@ OCO = ('emulated', DOC, False, 'relation_tpsl_order_id links the pair; canceling
 ATTACHED_SL = (True, 'https://huobiapi.github.io/docs/usdt_swap/v1/en/#cross-place-an-order', True,
                'sl_trigger_price in the opening order')
 
+# Moving a TP/SL (modify_tp_sl): the docs have no TP/SL amend, coexistence was not verified — a cancel and a new
+# placement (a window without a stop).
+MODIFY_IN_PLACE = None
+TWO_SL = (False, DOC, False, 'not verified — cancel, then the new one')
+
 # status «1.Not Activated, 2.Ready to submit the orders, 3.Submitting the orders, 4.Submit the orders success,
 # 5.Submit the orders failed, 6.Orders cancelled, 8.Cancelled order not found, 9.Orders cancelling, 10.Failed,
 # 11.Expired» (+ «12. Not Activated-Expired» — tpsl_order_info of the opening order, swap_cross_relation_tpsl_order)

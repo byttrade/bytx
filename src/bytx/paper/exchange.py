@@ -348,6 +348,17 @@ class PaperExchange(Exchange):
             raise InvalidOrder(f'paper replay: no price for {s} (order book not received yet)', exchange=self.name)
         return await super()._reference_price(s, side)
 
+    async def _trigger_price(self, s: str, trigger_by: Optional[str] = None, *, mark: Optional[float] = None) -> float:
+        """The price the engine checks triggers against (the leg's ``trigger_by``, otherwise the engine default):
+        mark — mark / book mid / last trade, last — last trade / mid."""
+        by = trigger_by or self.engine.trigger_by
+        if by == 'mark':
+            price = self.engine.mark_price(s)
+        else:
+            book = self.engine.book(s)
+            price = self.engine.last_price(s) or (book.mid if book is not None and book.bids and book.asks else None)
+        return float(price) if price else await self._reference_price(s, None)
+
     # ─── account ────────────────────────────────────────────────────────────
 
     async def balance(self) -> Balance:
@@ -700,19 +711,16 @@ class PaperExchange(Exchange):
                            stop_loss: Optional[float] = None, size: Optional[float] = None,
                            contracts: Optional[float] = None, client_id: Optional[str] = None,
                            trigger_by: Optional[TriggerBy] = None) -> TpSlModifyResult:
-        """Cancels the old trigger and places a new one (the new one only if the old one is surely gone)."""
+        """Make-before-break, like :meth:`Exchange.modify_tp_sl` on exchanges with two TP/SL per position: the new
+        trigger first, then the previous one is removed; the new one rejected — the previous one is untouched."""
         await self.connect()
         s = self.symbol(symbol)
         old = self.engine.trigger(s, order_id)
         price = take_profit if old.kind == 'take_profit' else stop_loss
         if price is None:
             raise ConfigError(f'{old.kind} price is required for order {order_id}', exchange=self.name)
-        with self._journal_op(s, [order_id]):
-            prev, ours = await self._cancel_one(s, order_id, None)
-        if not ours:
-            state = 'triggered' if cast(TpSlOrder, prev).state == 'triggered' else 'canceled'
-            if state == 'triggered':
-                return TpSlModifyResult(old='triggered', new=None, previous=cast(TpSlOrder, prev))
+        if old.state in ('triggered', 'canceled'):
+            return TpSlModifyResult(old=cast(str, old.state), new=None, previous=old)
         m = self._paper_market(s)
         amount = (convert.contracts_from_size(self._ex, m, size) if size is not None
                   else contracts if contracts is not None else old.contracts)
@@ -721,10 +729,13 @@ class PaperExchange(Exchange):
             new = await self._place_trigger(s, old.kind, price, cast(str, old.position_side), contracts=amount,
                                             client_id=client_id, trigger_by=by, journal=False)
         except BytxError as e:
-            return TpSlModifyResult(old='canceled', new='rejected', previous=old, error=e)
+            return TpSlModifyResult(old='alive', new='rejected', previous=old, error=e, strategy='make_before_break')
+        with self._journal_op(s, [order_id]):
+            prev, ours = await self._cancel_one(s, order_id, None)
+        state = 'canceled' if ours or cast(TpSlOrder, prev).state != 'triggered' else 'triggered'
         if self.journal is not None:
-            await self.journal._on_replaced(self, order_id, new, old_canceled=True)
-        return TpSlModifyResult(old='canceled', new='created', order=new, previous=old,
+            await self.journal._on_replaced(self, order_id, new, old_canceled=state == 'canceled')
+        return TpSlModifyResult(old=state, new='created', order=new, previous=old, strategy='make_before_break',
                                 client_ids=[new.client_id] if new.client_id else [])
 
     async def tp_sl_orders(self, symbol: str, side: Optional[str] = None) -> list[TpSlOrder]:

@@ -18,6 +18,12 @@ until ``ex.algos`` is accessed, the module is not even imported.
 Child orders are regular SDK orders: bot tag ``client_id_prefix``, broker tag, ``pre_submit``
 hook, RiskGuard; with a position journal, each order gets a role (``role=``; bracket uses
 ``entry`` / ``tp`` / ``sl``, trailing uses ``trailing``) and ``position_id=``.
+
+Algorithms do not resume after a restart. With an intent store (``intents=``) the algorithm's start and end are
+recorded, and child orders carry its id: ``ex.recover()`` cancels the working orders of unfinished algorithms and
+leaves position protection in place (``report.algos``, see :mod:`bytx.recovery.reconcile`); a bracket writes its
+protection plan before the entry — if it died between the entry and the legs, ``ex.recover()`` places the missing legs
+from the plan (position protection only).
 """
 from __future__ import annotations
 
@@ -102,8 +108,9 @@ class Algos:
                 price: Optional[float] = None, entry_timeout: Optional[float] = None, oco: str = 'auto',
                 trigger_by: Optional[str] = None, on_protect_fail: str = 'close', close_on_cancel: bool = False,
                 **kwargs: Any) -> Bracket:
-        """Entry + TP + SL; OCO is emulated where the exchange does not cancel the sibling itself.
-        See :mod:`bytx.algos.bracket`."""
+        """Entry + TP + SL; OCO is emulated where the exchange does not cancel the sibling itself. With an intent
+        store — a protection plan before the entry (a restart between the entry and the legs — ``ex.recover()`` places
+        the legs). See :mod:`bytx.algos.bracket`."""
         return self._start(Bracket(self.ex, symbol, side, size=size, take_profit=take_profit, stop_loss=stop_loss,
                                    price=price, entry_timeout=entry_timeout, oco=oco,  # type: ignore[arg-type]
                                    trigger_by=trigger_by, on_protect_fail=on_protect_fail,  # type: ignore[arg-type]

@@ -2,7 +2,9 @@
 
 A plain market order on a thin book walks through any number of levels. Here the price is capped:
 ``buy`` no higher than ``reference × (1 + max_slippage_bps / 10⁴)``, ``sell`` no lower than
-``reference × (1 − …)``; the price is rounded to the tick **inside** the cap (buy down, sell up).
+``reference × (1 − …)``; the price is rounded to the tick **inside** the cap (buy down, sell up). If the
+exchange's price band is narrower than the cap (OKX price-limit: an order beyond it is rejected entirely, 51006),
+the price goes inside the band.
 The order is a limit with ``time_in_force='IOC'``: fills immediately within the price, the exchange
 cancels the rest (all 6 SDK exchanges support IOC: Binance/BingX/KuCoin ``timeInForce=IOC``, Bybit ``IOC``,
 OKX ``ordType=ioc``, Hyperliquid ``tif: Ioc`` — ``tests/ground_truth/*/place_order``/``order``).
@@ -11,7 +13,9 @@ Reference price (``reference``): 'best' is the best opposite price (ask for buy)
 'mid' is the midpoint. Book without extra requests (:func:`~bytx.algos.base.current_book`).
 Before sending, the book is checked: if there is no opposite liquidity within the cap, the order is not
 sent. ``retries``: how many times to repeat IOC for the remainder (with a ``poll`` pause) from the **same**
-reference price: the cap does not drift with the market.
+reference price: the cap does not drift with the market. A remainder below the exchange's minimum order (step,
+``min_amount``, minimum notional ``min_cost`` at the IOC price; for reduce-only — without the notional) is not
+retried — ``extra['below_min']``; the whole ``size`` below the minimum — ``OrderTooSmall`` ('failed').
 """
 from __future__ import annotations
 
@@ -69,9 +73,10 @@ class CappedMarket(ExecAlgo):
         if ref is None:
             self._stop('no_liquidity')
             return
-        limit = self._round_price(cap_price(ref, side, self.max_slippage_bps), 'buy' if side == 'buy' else 'sell')
+        limit = await self._cap_limit(ref, self.max_slippage_bps)
         self.extra.update(reference_price=ref, limit_price=limit, attempts=0)
-        min_size = self._min_size()
+        min_size = max(self._min_size(limit, reduce_only=self.reduce_only), EPS)    # notional — at the IOC price
+        self._check_target(min_size, reduce_only=self.reduce_only)
         attempt = 0
         while True:
             await self._gate()
@@ -79,7 +84,8 @@ class CappedMarket(ExecAlgo):
                 await self._sleep(self.poll)
                 continue
             left = self._round_size(self.target - self.filled)
-            if left < max(min_size, EPS):
+            if left < min_size:
+                self._below_min(left)
                 self._stop('filled')
                 break
             if attempt > self.retries:

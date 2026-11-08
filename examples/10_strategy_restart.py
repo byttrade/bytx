@@ -1,9 +1,11 @@
 """A strategy on the Strategy framework that survives restarts.
 
-Mean reversion: price ``entry_bps`` below the EMA — post-only buy at the bid with TP at the EMA and SL
-below the entry; the limit order lives at most ``entry_ttl`` seconds (timer). Every order is written to
-sqlite before sending (``IntentStore``); after a process crash, startup picks up live orders
-(``ctx.recovery``) — no second entry is placed, a missing TP/SL is recreated.
+Mean reversion on the best price stream (``best_bid_ask``): the mid ``entry_bps`` below the EMA —
+post-only buy at the bid with TP at the EMA and SL below the entry; the limit order lives at most ``entry_ttl``
+seconds (timer). Every order is written to sqlite before sending (``IntentStore``); after a process crash,
+startup picks up live orders (``ctx.recovery``) — no second entry is placed, a missing TP/SL is recreated;
+a position opened before the crash is taken from the tracker snapshot (``ctx.positions``) — no new entry is
+placed on top of it.
 
     python examples/10_strategy_restart.py BTC/USDT:USDT 0.001            # exchange demo
     python examples/10_strategy_restart.py BTC/USDT:USDT 0.001 --paper    # paper on the live order book
@@ -39,7 +41,8 @@ def entry_price(ema: Optional[float], bid: Optional[float], ask: Optional[float]
 
 
 class MeanRevert(Strategy):
-    feeds = ('ticker',)
+    # best bid/ask (bookTicker / bbo): the Binance USDⓈ-M WS ticker (24hrTicker) has no bid/ask — only last
+    feeds = ('best_bid_ask',)
 
     def __init__(self, symbol: str, size: float, *, entry_bps: float = 20.0, stop_pct: float = 1.0,
                  alpha: float = 0.1, entry_ttl: float = 60.0) -> None:
@@ -52,6 +55,12 @@ class MeanRevert(Strategy):
         entries = [o for o in live if o.side == 'buy' and not o.reduce_only]
         if entries:                                   # restart: entry already placed — no duplicate
             ctx.state['entry'] = entries[0]
+        # restart: the entry filled before the crash (or while the process was down) — the position is already
+        # open. on_position reports only changes after the start, the current position is in the tracker snapshot
+        # (demo 2026-11-04: without this, an entry after kill -9 doubled the position)
+        pos = ctx.positions.get(self.symbol, 'long') if ctx.positions is not None else None
+        if pos is not None and pos.size:
+            ctx.state['position'] = pos.size
         ctx.every(self.entry_ttl, self.expire_entry, name='entry_ttl')
 
     async def on_tick(self, ctx: StrategyContext, tick: Tick) -> None:
@@ -78,6 +87,10 @@ class MeanRevert(Strategy):
             ctx.state['entry'] = None
 
     async def on_position(self, ctx: StrategyContext, position) -> None:
+        # the runner delivers only positions of the strategy's symbols; the short side of the same symbol (hedge,
+        # another bot) is not ours
+        if position.side not in (None, 'long'):
+            return
         ctx.state['position'] = position.size or 0.0
 
     async def expire_entry(self, ctx: StrategyContext) -> None:

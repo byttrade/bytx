@@ -9,8 +9,13 @@ import types
 from loguru import logger
 
 
+#: orders-pending docs filters with which the list is still walked page by page
+_PAGED_OPEN_PARAMS = frozenset({'instType', 'instFamily', 'state'})
+
+
 def patch_okx_instance(exchange) -> None:
-    """Installs safe parse_market/parse_markets and fetch_my_liquidations on an OKX instance.
+    """Installs safe parse_market/parse_markets, fetch_my_liquidations and all-pages fetch_open_orders on an OKX
+    instance.
 
     Does nothing for other exchanges. Repeated calls are safe.
     """
@@ -138,6 +143,21 @@ def patch_okx_instance(exchange) -> None:
 
         return liquidations
 
+    # Open orders — all pages of orders-pending (``after``; ccxt — one page ≤ 100) for direct ccxt calls on the
+    # instance. With ``limit``, ``after``/``before``, algo/trigger and any params other than the docs filters
+    # instType/instFamily/state — one ccxt request, as before (Exchange.open_orders walks the pages itself — each page
+    # through the limiter).
+    original_open_orders = exchange.fetch_open_orders
+
+    async def fetch_open_orders(symbol=None, since=None, limit=None, params={}):  # noqa: B006 — ccxt signature
+        query = dict(params or {})
+        if limit is not None or set(query) - _PAGED_OPEN_PARAMS:
+            return await original_open_orders(symbol, since, limit, params)
+        from bytx.exchanges.okx import orders as okx_orders
+        return await okx_orders.open_pages(
+            lambda page: original_open_orders(symbol, since, None, {**query, **page}), symbol or '')
+
+    exchange.fetch_open_orders = fetch_open_orders
     exchange.parse_market = types.MethodType(safe_parse_market, exchange)
     exchange.parse_markets = types.MethodType(safe_parse_markets, exchange)
     exchange.fetch_my_liquidations = types.MethodType(fetch_my_liquidations_okx, exchange)

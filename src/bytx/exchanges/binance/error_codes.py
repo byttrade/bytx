@@ -11,9 +11,13 @@ DOCS = 'https://developers.binance.com/docs/derivatives/usds-margined-futures/er
 UNKNOWN_OUTCOME = frozenset({'-1006', '-1007'})
 # -4116 DUPLICATED_CLIENT_ORDER_ID «clientOrderId is duplicated» — an order with this id already exists
 DUPLICATE_CLIENT_ID = frozenset({'-4116'})
-# Binance has no «no position» code: -2022 REDUCE_ONLY_REJECT is a conflict with open orders
+# Binance has no separate «no position» code. -2022 REDUCE_ONLY_REJECT «ReduceOnly Order is rejected.» on a
+# closing order (reduce-only; in hedge — an order of the positionSide side, reduceOnly is not sent) — the same as Bybit
+# 110017: demo 2026-11-04 (hedge) — no side: -2022; a closing order larger than the side is silently trimmed by the
+# exchange; the side fully covered by resting closing orders: -2022. Do not retry: check the position and orders.
+# Without reduce-only the code stays InvalidOrder.
 POSITION_CLOSED: frozenset = frozenset()
-POSITION_CLOSED_IF_REDUCE: frozenset = frozenset()
+POSITION_CLOSED_IF_REDUCE = frozenset({'-2022'})
 REDUCE_EXCEEDS: frozenset = frozenset()
 UNKNOWN_OUTCOME_UNDOCUMENTED: frozenset = frozenset()
 # other exchange errors that ccxt 4.4.65 doesn't map to InsufficientFunds

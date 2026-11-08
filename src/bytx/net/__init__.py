@@ -9,7 +9,15 @@ from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 from bytx.markets import cache_key
 from bytx.net.deadline import deadline, deadline_left, within_deadline
-from bytx.net.limiter import RateCap, TokenBucket, install_limiter, limiter_key, reset_registry, shared_throttler
+from bytx.net.limiter import (
+    RateCap,
+    TokenBucket,
+    host_env,
+    install_limiter,
+    limiter_key,
+    reset_registry,
+    shared_throttler,
+)
 from bytx.net.metrics import EndpointMetrics, MeteredFetch, Metrics, MetricsSnapshot, instrument
 from bytx.net.retry import UNSAFE_METHODS, RetryPolicy, call_with_retry, is_ip_ban, is_unsafe
 from bytx.net.timesync import TimeSync
@@ -35,7 +43,8 @@ class NetLayer:
 
     def set_limiter(self, rate_limit_key: Optional[str] = None, rate_limit: Optional[float] = None) -> None:
         """Shared limiter key (exchange + proxy by default) and the account's requests/sec ceiling."""
-        self.limiter_key = rate_limit_key or limiter_key(self._ex.id, self._proxy)
+        # demo / testnet with their own host — their own IP limiter; an explicit user key takes precedence
+        self.limiter_key = rate_limit_key or limiter_key(self._ex.id, self._proxy, env=host_env(self._ex))
         self.rate_limit = rate_limit
         install_limiter(self._ex, self.limiter_key, rate_limit)
         # clock offset is shared per (exchange, network, market type, channel)

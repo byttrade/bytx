@@ -498,8 +498,9 @@ class PositionJournal:
 
     async def _own_tp_sl_fill(self, ex: Any, order: 'Order') -> Optional[_OrderRef]:
         """Fill order of our triggered TP/SL: the exchange fills TP/SL with a DIFFERENT order, the link exists only
-        in the TP/SL record (``TpSlOrder.fill_order_id``: Binance actualOrderId, Gate trade_id, MEXC placeOrderId,
-        HTX relation_order_id). Our TP/SL orders on the same symbol are re-read (at most ``_FILL_LOOKUPS``)."""
+        in the TP/SL record (``TpSlOrder.fill_order_ids``: Binance actualOrderId, OKX ordIdList, Gate trade_id, MEXC
+        placeOrderId, HTX relation_order_id). Our TP/SL orders on the same symbol are re-read (at most
+        ``_FILL_LOOKUPS``)."""
         from bytx.exchanges import tp_sl_fills_by_other_order
         if not order.id or not tp_sl_fills_by_other_order(getattr(getattr(ex, '_ex', None), 'id', None) or ''):
             return None
@@ -517,7 +518,8 @@ class PositionJournal:
             except Exception as e:
                 logger.debug(f'position journal: TP/SL {oid} not read: {type(e).__name__}: {e}')
                 continue
-            if getattr(tp_sl, 'fill_order_id', None) == str(order.id):
+            fills = getattr(tp_sl, 'fill_order_ids', ()) or (getattr(tp_sl, 'fill_order_id', None),)
+            if str(order.id) in fills:              # OKX ordIdList: a TP/SL fill may be several orders
                 found = replace(ref, filled=0.0, price=None, amount=None, flagged=False)
                 found.reason, found.confidence = f'fill of our TP/SL {oid} (fill_order_id)', 'exchange'
                 return found

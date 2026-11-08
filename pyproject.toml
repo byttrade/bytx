@@ -27,13 +27,14 @@ classifiers = [
 dependencies = [
     "ccxt==4.4.65",
     "pydantic>=2.5,<3",
-    "loguru>=0.7",
-    "aiohttp>=3.9",
+    "loguru>=0.7,<1",
+    "aiohttp>=3.9,<4",
 ]
 
 [project.optional-dependencies]
 ws = ["aiohttp-socks>=0.8"]
-fast = ["orjson>=3.9", "uvloop>=0.19; sys_platform != 'win32'"]
+# coincurve — Hyperliquid signing via libsecp256k1: ~4 ms instead of ~50 ms of pure Python ccxt in the event loop per action
+fast = ["orjson>=3.9", "uvloop>=0.19; sys_platform != 'win32'", "coincurve>=20"]
 yaml = ["pyyaml>=6.0"]
 # dataframes and parquet history cache (the core works without them; without pyarrow the cache is csv)
 pandas = ["pandas>=1.5"]
