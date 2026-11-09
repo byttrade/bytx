@@ -6,7 +6,10 @@
 Hyperliquid、KuCoin、Bitget、ベータ版として Gate、MEXC、HTX。現物と無期限先物をひとつのインターフェースで扱え、
 スマートな再接続を備えた WebSocket、アカウントごとのプロキシ、スキャルピング向けのツールを提供します。
 
-> 完全なドキュメント: [README.md](README.md)(英語)
+> 完全なドキュメント: [docs/GUIDE.md](docs/GUIDE.md)(英語)
+
+
+![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 
 ## インストール
 
@@ -99,7 +102,7 @@ except errors.OrderStatusUnknown as e:
 | レスポンスは `dict` | dataclass モデル(`Order`、`Position`、`OrderBook`…)、生レスポンスは `.raw` に |
 | ccxt の例外がそのまま | `.retryable` フラグ付きの統一 `BytxError` 階層 |
 | WS は例外で落ち、再接続は自分で実装 | スーパーバイザー: backoff + jitter、無通信ウォッチドッグ、再購読、オーダーブックの再同期、状態イベント |
-| レスポンスが取引所ドキュメントと食い違う | 取引所の公式ドキュメントと照合済み([ground truth](README.md#quality))、ccxt のバグは SDK 側で修正 |
+| レスポンスが取引所ドキュメントと食い違う | 取引所の公式ドキュメントと照合済み([ground truth](docs/GUIDE.md#quality))、ccxt のバグは SDK 側で修正 |
 
 さらに: どこでも型付きモデル、全取引所で統一された数量単位、アカウントごとのプロキシ、ライブのオーダーブック上での
 ペーパートレード、ポジションジャーナル、API キーの権限チェック、取引所のヘルス情報 — すべてどの取引所でも同じ
@@ -132,7 +135,7 @@ except errors.OrderStatusUnknown as e:
 | ヘッジモード | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 注記と制限事項(Binance/Bybit/Hyperliquid の WS 注文の条件、MEXC 現物の WS など)は
-[英語版 README](README.md) を参照してください。
+[英語版 README](docs/GUIDE.md) を参照してください。
 
 ## サンプル
 

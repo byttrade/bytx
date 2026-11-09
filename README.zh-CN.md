@@ -6,7 +6,10 @@
 Gate、MEXC、HTX 处于 beta 阶段。现货和永续合约使用同一套接口，WebSocket 具备智能重连，
 每个账户可单独配置代理，并提供面向剥头皮（scalping）交易的工具。
 
-> 完整文档：[README.md](README.md)（英文）
+> 完整文档：[docs/GUIDE.md](docs/GUIDE.md)（英文）
+
+
+![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 
 ## 安装
 
@@ -97,7 +100,7 @@ except errors.OrderStatusUnknown as e:
 | 返回 `dict` | dataclass 模型（`Order`、`Position`、`OrderBook`…），原始响应在 `.raw` 中 |
 | 裸露的 ccxt 异常 | 统一的 `BytxError` 异常体系，带 `.retryable` 标志 |
 | WS 抛异常后断开，重连得自己处理 | 监督器：退避 + 抖动、静默看门狗、自动重新订阅、订单簿重新同步、状态事件 |
-| 响应与交易所文档不一致 | 响应已对照交易所官方文档校验（[ground truth](README.md#quality)），ccxt 的 bug 在 SDK 中修复 |
+| 响应与交易所文档不一致 | 响应已对照交易所官方文档校验（[ground truth](docs/GUIDE.md#quality)），ccxt 的 bug 在 SDK 中修复 |
 
 此外：处处都是类型化模型，所有交易所统一的数量单位，每个账户独立代理，基于实时订单簿的模拟交易（paper trading），
 持仓日志，API key 权限检查和交易所健康状态 —— 而且在每个交易所上都是同一套接口。
@@ -127,7 +130,7 @@ except errors.OrderStatusUnknown as e:
 | 模拟盘 / testnet | ✓ | ✓ | ✓ | 合约 | ✓ | — | ✓ | ✓ | — | — |
 | 对冲模式 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
-各交易所的细节和限制（WS 下单、模拟环境的特殊行为等）见 [README.md](README.md)。
+各交易所的细节和限制（WS 下单、模拟环境的特殊行为等）见 [docs/GUIDE.md](docs/GUIDE.md)。
 
 ## 示例
 

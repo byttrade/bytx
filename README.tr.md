@@ -7,7 +7,10 @@ OKX, BingX, Hyperliquid, KuCoin, Bitget; beta aşamasında: Gate, MEXC, HTX. Spo
 için tek bir arayüz, akıllı yeniden bağlanan WebSocket, hesap başına proxy ve scalping
 için araçlar sunar.
 
-> Tam dokümantasyon: [README.md](README.md) (İngilizce)
+> Tam dokümantasyon: [docs/GUIDE.md](docs/GUIDE.md) (İngilizce)
+
+
+![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 
 ## Kurulum
 
@@ -101,7 +104,7 @@ except errors.OrderStatusUnknown as e:
 | `dict` yanıtlar | dataclass modelleri (`Order`, `Position`, `OrderBook`…), ham yanıt `.raw` içinde |
 | Çıplak ccxt istisnaları | `.retryable` bayraklı tek bir `BytxError` hiyerarşisi |
 | WS bir istisnayla ölür, yeniden bağlanmak sizin işiniz | supervisor: backoff + jitter, sessizlik watchdog'u, yeniden abonelik, emir defteri senkronizasyonu, durum olayları |
-| Yanıtlar borsa dokümantasyonundan sapar | yanıtlar resmi borsa dokümantasyonuna göre doğrulanır ([ground truth](README.md#quality)), ccxt hataları SDK'da düzeltilir |
+| Yanıtlar borsa dokümantasyonundan sapar | yanıtlar resmi borsa dokümantasyonuna göre doğrulanır ([ground truth](docs/GUIDE.md#quality)), ccxt hataları SDK'da düzeltilir |
 
 Ayrıca: her yerde tipli modeller, tüm borsalarda tek hacim birimi, hesap başına proxy, canlı emir defterleri
 üzerinde paper trading, pozisyon günlüğü, API anahtarı yetki kontrolleri ve borsa sağlık durumu — hepsi her
@@ -134,7 +137,7 @@ borsada aynı arayüzle.
 | Hedge modu | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 Dipnotlar ve kısıtlamalar (Binance/Bybit/Hyperliquid'de WS emir koşulları, MEXC spot WS vb.) için
-[İngilizce README](README.md)'ye bakın.
+[İngilizce README](docs/GUIDE.md)'ye bakın.
 
 ## Örnekler
 

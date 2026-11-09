@@ -6,7 +6,10 @@ SDK Python **async** e tipado para exchanges de criptomoedas: Binance, Bybit, OK
 KuCoin, Bitget; em beta: Gate, MEXC, HTX. Uma única interface para spot e futuros perpétuos, WebSocket com
 reconexão inteligente, um proxy por conta e ferramentas para scalping.
 
-> Documentação completa: [README.md](README.md) (inglês)
+> Documentação completa: [docs/GUIDE.md](docs/GUIDE.md) (inglês)
+
+
+![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 
 ## Instalação
 
@@ -100,7 +103,7 @@ except errors.OrderStatusUnknown as e:
 | respostas em `dict` | modelos dataclass (`Order`, `Position`, `OrderBook`…), resposta original em `.raw` |
 | exceções do ccxt sem tratamento | uma única hierarquia `BytxError` com a flag `.retryable` |
 | o WS cai com uma exceção e reconectar é problema seu | supervisor: backoff + jitter, watchdog de silêncio, reinscrição, ressincronização do order book, eventos de estado |
-| respostas divergem da documentação da exchange | respostas verificadas contra a documentação oficial ([ground truth](README.md#quality)); bugs do ccxt corrigidos no SDK |
+| respostas divergem da documentação da exchange | respostas verificadas contra a documentação oficial ([ground truth](docs/GUIDE.md#quality)); bugs do ccxt corrigidos no SDK |
 
 E mais: modelos tipados em tudo, uma única unidade de volume em todas as exchanges, um proxy por conta,
 paper trading em order books ao vivo, um diário de posições, verificação de permissões da chave de API e
@@ -132,7 +135,7 @@ saúde da exchange — tudo com a mesma interface em cada exchange.
 | Modo hedge | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 Detalhes e limitações de cada exchange (ordens via WS, particularidades dos ambientes demo etc.) estão no
-[README.md](README.md).
+[docs/GUIDE.md](docs/GUIDE.md).
 
 ## Exemplos
 

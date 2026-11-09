@@ -6,7 +6,10 @@
 Hyperliquid, KuCoin, Bitget, 베타: Gate, MEXC, HTX. 현물과 무기한 선물을 하나의 인터페이스로 다루고,
 스마트 재연결 기능을 갖춘 WebSocket, 계정별 프록시, 스캘핑을 위한 도구를 제공합니다.
 
-> 전체 문서: [README.md](README.md) (영어)
+> 전체 문서: [docs/GUIDE.md](docs/GUIDE.md) (영어)
+
+
+![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 
 ## 설치
 
@@ -99,7 +102,7 @@ except errors.OrderStatusUnknown as e:
 | `dict` 응답 | dataclass 모델(`Order`, `Position`, `OrderBook`…), 원본 응답은 `.raw` |
 | ccxt 예외 그대로 | `.retryable` 플래그가 있는 단일 `BytxError` 계층 |
 | WS가 예외로 죽고 재연결은 직접 구현 | 슈퍼바이저: backoff + jitter, 무응답 감시, 재구독, 오더북 재동기화, 상태 이벤트 |
-| 응답이 거래소 문서와 다름 | 거래소 공식 문서와 대조 검증([ground truth](README.md#quality)), ccxt 버그는 SDK에서 수정 |
+| 응답이 거래소 문서와 다름 | 거래소 공식 문서와 대조 검증([ground truth](docs/GUIDE.md#quality)), ccxt 버그는 SDK에서 수정 |
 
 그 밖에도: 어디서나 타입이 지정된 모델, 모든 거래소에서 하나의 수량 단위, 계정별 프록시, 실시간 오더북 기반
 페이퍼 트레이딩, 포지션 저널, API 키 권한 검사와 거래소 상태 확인 — 모두 모든 거래소에서 같은 인터페이스로
@@ -132,7 +135,7 @@ except errors.OrderStatusUnknown as e:
 | 헤지 모드 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 각주와 제한 사항(Binance/Bybit/Hyperliquid의 WS 주문 조건, MEXC 현물 WS 등)은
-[영문 README](README.md)를 참고하세요.
+[영문 README](docs/GUIDE.md)를 참고하세요.
 
 ## 예제
 

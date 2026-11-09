@@ -59,7 +59,7 @@ dev = [
 [project.urls]
 Homepage = "https://byttrade.com"
 Repository = "https://github.com/byttrade/bytx"
-Documentation = "https://github.com/byttrade/bytx#readme"
+Documentation = "https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md"
 Issues = "https://github.com/byttrade/bytx/issues"
 
 [tool.hatch.version]
