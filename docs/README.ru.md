@@ -1,6 +1,6 @@
 # bytx — от [BYTtrade](https://byttrade.com)
 
-[English](https://github.com/byttrade/bytx/blob/main/README.md) | **Русский** | [中文](https://github.com/byttrade/bytx/blob/main/README.zh-CN.md) | [Español](https://github.com/byttrade/bytx/blob/main/README.es.md) | [Português](https://github.com/byttrade/bytx/blob/main/README.pt-BR.md) | [日本語](https://github.com/byttrade/bytx/blob/main/README.ja.md) | [한국어](https://github.com/byttrade/bytx/blob/main/README.ko.md) | [Türkçe](https://github.com/byttrade/bytx/blob/main/README.tr.md)
+[English](https://github.com/byttrade/bytx/blob/main/README.md) | **Русский** | [中文](https://github.com/byttrade/bytx/blob/main/docs/README.zh-CN.md) | [Español](https://github.com/byttrade/bytx/blob/main/docs/README.es.md) | [Português](https://github.com/byttrade/bytx/blob/main/docs/README.pt-BR.md) | [日本語](https://github.com/byttrade/bytx/blob/main/docs/README.ja.md) | [한국어](https://github.com/byttrade/bytx/blob/main/docs/README.ko.md) | [Türkçe](https://github.com/byttrade/bytx/blob/main/docs/README.tr.md)
 
 [![PyPI](https://img.shields.io/pypi/v/bytx)](https://pypi.org/project/bytx/)
 [![Python](https://img.shields.io/pypi/pyversions/bytx)](https://pypi.org/project/bytx/)
@@ -134,14 +134,11 @@ async with bytx.create_exchange('okx', api_key=key, secret=secret, password=pass
 [Восстановление после рестарта](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#восстановление-после-рестарта-и-стратегии) ·
 [Прокси](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#прокси-и-несколько-аккаунтов) ·
 [Интеграции](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#интеграции-tradingview-telegramdiscord-prometheus-opentelemetry) ·
-[Ошибки](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#ошибки) ·
-[Поддержать проект](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#поддержать-проект)
+[Ошибки](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#ошибки)
 
 ## Лицензия
 
 Бесплатное использование по [BYTtrade Source-Available License](https://github.com/byttrade/bytx/blob/main/LICENSE),
 в том числе коммерческое; копировать код в другие библиотеки, публиковать изменённые версии и предлагать как
 хостируемый сервис нельзя. Использует ccxt (MIT), см. [`NOTICE`](https://github.com/byttrade/bytx/blob/main/NOTICE).
-bytx участвует в партнёрских программах бирж; ваши комиссии от этого не меняются
-([подробнее](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.ru.md#поддержать-проект)).
 Не является финансовой рекомендацией; торговля криптовалютой связана с риском потерь.

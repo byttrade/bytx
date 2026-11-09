@@ -1,12 +1,12 @@
 # bytx — por [BYTtrade](https://byttrade.com)
 
-[English](README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | **Português** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
+[English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | **Português** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
 
 SDK Python **async** e tipado para exchanges de criptomoedas: Binance, Bybit, OKX, BingX, Hyperliquid,
 KuCoin, Bitget; em beta: Gate, MEXC, HTX. Uma única interface para spot e futuros perpétuos, WebSocket com
 reconexão inteligente, um proxy por conta e ferramentas para scalping.
 
-> Documentação completa: [docs/GUIDE.md](docs/GUIDE.md) (inglês)
+> Documentação completa: [docs/GUIDE.md](GUIDE.md) (inglês)
 
 
 ![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
@@ -103,7 +103,7 @@ except errors.OrderStatusUnknown as e:
 | respostas em `dict` | modelos dataclass (`Order`, `Position`, `OrderBook`…), resposta original em `.raw` |
 | exceções do ccxt sem tratamento | uma única hierarquia `BytxError` com a flag `.retryable` |
 | o WS cai com uma exceção e reconectar é problema seu | supervisor: backoff + jitter, watchdog de silêncio, reinscrição, ressincronização do order book, eventos de estado |
-| respostas divergem da documentação da exchange | respostas verificadas contra a documentação oficial ([ground truth](docs/GUIDE.md#quality)); bugs do ccxt corrigidos no SDK |
+| respostas divergem da documentação da exchange | respostas verificadas contra a documentação oficial ([ground truth](GUIDE.md#quality)); bugs do ccxt corrigidos no SDK |
 
 E mais: modelos tipados em tudo, uma única unidade de volume em todas as exchanges, um proxy por conta,
 paper trading em order books ao vivo, um diário de posições, verificação de permissões da chave de API e
@@ -135,41 +135,21 @@ saúde da exchange — tudo com a mesma interface em cada exchange.
 | Modo hedge | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 Detalhes e limitações de cada exchange (ordens via WS, particularidades dos ambientes demo etc.) estão no
-[docs/GUIDE.md](docs/GUIDE.md).
+[docs/GUIDE.md](GUIDE.md).
 
 ## Exemplos
 
-[`examples/`](examples): fundamentos de trading ([`00_trading_basics.py`](examples/00_trading_basics.py): autenticação,
+[`examples/`](../examples): fundamentos de trading ([`00_trading_basics.py`](../examples/00_trading_basics.py): autenticação,
 spot e futuros, ordens limit: criar / editar / cancelar, reduzir uma posição), dados de mercado e order book,
 backtest, scanner de arbitragem, grid, DCA, alertas no Telegram, esqueleto de scalper, múltiplas contas e uma
 estratégia com recuperação após reinício.
 Os exemplos de trading rodam em demo por padrão. Prefere não programar? Os mesmos bots e backtests rodam em
 [byttrade.com](https://byttrade.com).
 
-## Apoie o projeto
-
-O BYTtrade SDK é gratuito. A melhor forma de agradecer é simplesmente usá-lo: o SDK participa
-dos programas de parceiros das exchanges, e uma parte da taxa que a exchange já cobra de qualquer forma vai
-para o projeto. Para você nada muda: nem as taxas, nem a execução (muitas outras bibliotecas de trading
-funcionam do mesmo jeito). Obrigado por ajudar o projeto a crescer!
-
-<details>
-<summary>Detalhes</summary>
-
-O SDK não envia as tags de broker embutidas no ccxt. Se a tag de parceiro não for do seu agrado, você pode
-desativá-la: `BrokerConfig.disabled()` em `set_broker_config(...)` / `create_exchange(..., broker=...)`
-ou `BYTX_BROKER_MODE=off` no ambiente.
-
-- **Hyperliquid builder fee**: apenas de forma explícita (`BrokerConfig(hl_builder_address=…)`) e somente
-  após a aprovação do usuário.
-- **HTX**: a documentação não tem mecanismo de tag de broker; o `channel_code` não documentado do ccxt foi removido.
-
-</details>
-
 ## Licença
 
-O bytx é gratuito para uso sob a [BYTtrade Source-Available License](LICENSE): você pode instalá-lo e usá-lo nos seus próprios
+O bytx é gratuito para uso sob a [BYTtrade Source-Available License](../LICENSE): você pode instalá-lo e usá-lo nos seus próprios
 scripts, bots e aplicações, inclusive para fins comerciais. Não é permitido copiar o código para outras
 bibliotecas, publicar versões modificadas nem oferecê-lo como serviço hospedado.
-Usa ccxt (MIT), veja [`NOTICE`](NOTICE).
+Usa ccxt (MIT), veja [`NOTICE`](../NOTICE).
 Não é recomendação financeira; operar criptomoedas envolve risco de perda.

@@ -1,6 +1,6 @@
 # bytx — by [BYTtrade](https://byttrade.com)
 
-**English** | [Русский](https://github.com/byttrade/bytx/blob/main/README.ru.md) | [中文](https://github.com/byttrade/bytx/blob/main/README.zh-CN.md) | [Español](https://github.com/byttrade/bytx/blob/main/README.es.md) | [Português](https://github.com/byttrade/bytx/blob/main/README.pt-BR.md) | [日本語](https://github.com/byttrade/bytx/blob/main/README.ja.md) | [한국어](https://github.com/byttrade/bytx/blob/main/README.ko.md) | [Türkçe](https://github.com/byttrade/bytx/blob/main/README.tr.md)
+**English** | [Русский](https://github.com/byttrade/bytx/blob/main/docs/README.ru.md) | [中文](https://github.com/byttrade/bytx/blob/main/docs/README.zh-CN.md) | [Español](https://github.com/byttrade/bytx/blob/main/docs/README.es.md) | [Português](https://github.com/byttrade/bytx/blob/main/docs/README.pt-BR.md) | [日本語](https://github.com/byttrade/bytx/blob/main/docs/README.ja.md) | [한국어](https://github.com/byttrade/bytx/blob/main/docs/README.ko.md) | [Türkçe](https://github.com/byttrade/bytx/blob/main/docs/README.tr.md)
 
 [![PyPI](https://img.shields.io/pypi/v/bytx)](https://pypi.org/project/bytx/)
 [![Python](https://img.shields.io/pypi/pyversions/bytx)](https://pypi.org/project/bytx/)
@@ -134,14 +134,11 @@ The full guide — every method, exchange specifics, errors, recovery after a re
 [Restart recovery](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#restart-recovery-and-strategies) ·
 [Proxies](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#proxies-and-multiple-accounts) ·
 [Integrations](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#integrations-tradingview-telegramdiscord-prometheus-opentelemetry) ·
-[Errors](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#errors) ·
-[Support the project](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#support-the-project)
+[Errors](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#errors)
 
 ## License
 
 Free to use under the [BYTtrade Source-Available License](https://github.com/byttrade/bytx/blob/main/LICENSE),
 including commercially; copying the code into other libraries, modified versions and hosted services are not
 permitted. Uses ccxt (MIT), see [`NOTICE`](https://github.com/byttrade/bytx/blob/main/NOTICE).
-bytx takes part in exchange partner programs; nothing changes in your fees
-([details](https://github.com/byttrade/bytx/blob/main/docs/GUIDE.md#support-the-project)).
 Not financial advice; trading cryptocurrency carries a risk of loss.

@@ -1172,39 +1172,14 @@ instrument(ex)                             # OpenTelemetry spans
 scalper skeleton, multi-account, a strategy with restart recovery. Trading
 examples run on demo by default. Prefer no code? The same bots and backtests run at [byttrade.com](https://byttrade.com).
 
-## Support the project
-
-BYTtrade SDK is free to use. The best thank-you is simply to use it: the SDK takes part in
-exchange partner programs, and a share of the fee the exchange charges anyway goes to the project.
-Nothing changes for you — neither fees nor execution (many other trading libraries
-work the same way). Thank you for helping the project grow!
-
-<details>
-<summary>Details</summary>
-
-The SDK does not send ccxt's built-in broker tags. If the partner tag doesn't suit you, you can
-turn it off: `BrokerConfig.disabled()` in `set_broker_config(...)` / `create_exchange(..., broker=...)`
-or `BYTX_BROKER_MODE=off` in the environment.
-
-- **Hyperliquid builder fee** — only explicitly (`BrokerConfig(hl_builder_address=…)`) and only
-  after the user approves it: `await ex.builder_fee_status()`, `await ex.check_builder_fee(require=True)`
-  (`HyperliquidBuilderNotApprovedError` / `HyperliquidBuilderCheckUnavailableError`),
-  `ex.on_builder_fallback = callback` (HL rejected due to the builder — retried without it),
-  `ex.builder_approval_request()` — EIP-712 payload to sign with the main wallet.
-- **HTX** — the docs have no broker tag: ccxt's undocumented `channel_code` in contract
-  orders and the same spot client-order-id prefix are removed.
-
-</details>
-
 ## client_id
 
 The SDK never replaces the caller's client_id: an invalid exchange format raises `InvalidOrder` before sending.
 Without your own id the SDK generates one (with the `client_id_prefix` tag, if set).
 
 - `bytx.max_client_id_len(ex)` — the maximum id length (Binance — 36 minus the broker prefix
-  `x-<ID>` the transport adds). Longer ids are sent without the prefix, i.e. without broker
-  attribution (WARNING, `binance_unattributed_counts()`); `create_exchange(..., client_id_strict=True)`
-  makes this an `InvalidOrder`.
+  `x-<ID>` the transport adds). Keep ids within this length;
+  `create_exchange(..., client_id_strict=True)` makes a longer id an `InvalidOrder`.
 - `bytx.generate_client_id(ex, prefix='d0123…')` — an id in the exchange's format and length.
 - `bytx.owns(order, prefix, exchange)` — whether the order is yours (Hyperliquid and BingX — case-insensitive).
   `Order.client_id` is logical: the Binance broker prefix is stripped.

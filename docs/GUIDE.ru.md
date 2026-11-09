@@ -1,6 +1,6 @@
 # bytx — полное руководство
 
-[English](GUIDE.md) | **Русский** · [← README](../README.ru.md)
+[English](GUIDE.md) | **Русский** · [← README](README.ru.md)
 
 Типизированный **асинхронный** Python SDK для криптобирж: Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget;
 в бете: Gate, MEXC, HTX.
@@ -862,7 +862,7 @@ result = await run_strategy(Mine(), ex)                                 # live /
 result = await ex.replay.run(lambda ex: run_strategy(Mine(), ex))      # replay записи
 ```
 
-Пример — [`examples/10_strategy_restart.py`](examples/10_strategy_restart.py). Модули `bytx.recovery` и
+Пример — [`examples/10_strategy_restart.py`](../examples/10_strategy_restart.py). Модули `bytx.recovery` и
 `bytx.strategy` не импортируются, пока не используются: путь ордера без хранилища стоит одной проверки.
 
 ## Bitget и Gate (Gate — бета)
@@ -1155,33 +1155,9 @@ instrument(ex)                             # спаны OpenTelemetry
 
 ## Примеры
 
-[`examples/`](examples): основы торговли ([`00_trading_basics.py`](examples/00_trading_basics.py) — аутентификация, спот и фьючерсы, лимитные ордера: размещение / изменение / отмена, сокращение позиции), рыночные данные и стакан, бэктест, сканер арбитража, сетка, DCA, алерты в Telegram,
+[`examples/`](../examples): основы торговли ([`00_trading_basics.py`](../examples/00_trading_basics.py) — аутентификация, спот и фьючерсы, лимитные ордера: размещение / изменение / отмена, сокращение позиции), рыночные данные и стакан, бэктест, сканер арбитража, сетка, DCA, алерты в Telegram,
 каркас скальпера, мультиаккаунт, стратегия с восстановлением после рестарта. Торговые
 примеры по умолчанию работают на демо. Не хотите писать код? Те же боты и бэктесты запускаются на [byttrade.com](https://byttrade.com).
-
-## Поддержать проект
-
-BYTtrade SDK бесплатный. Лучшая благодарность — просто пользоваться им: SDK участвует
-в партнёрских программах бирж, и часть комиссии, которую биржа берёт в любом случае, идёт проекту.
-Для вас ничего не меняется — ни комиссии, ни исполнение (так же устроены многие другие
-библиотеки для трейдинга). Спасибо, что помогаете проекту расти!
-
-<details>
-<summary>Подробнее</summary>
-
-SDK не отправляет встроенные брокерские теги ccxt. Если партнёрский тег вам не подходит, его можно
-отключить: `BrokerConfig.disabled()` в `set_broker_config(...)` / `create_exchange(..., broker=...)`
-или `BYTX_BROKER_MODE=off` в окружении.
-
-- **Builder fee Hyperliquid** — только явно (`BrokerConfig(hl_builder_address=…)`) и только
-  после одобрения пользователем: `await ex.builder_fee_status()`, `await ex.check_builder_fee(require=True)`
-  (`HyperliquidBuilderNotApprovedError` / `HyperliquidBuilderCheckUnavailableError`),
-  `ex.on_builder_fallback = callback` (HL отклонил из-за builder — повтор без него),
-  `ex.builder_approval_request()` — EIP-712 payload для подписи основным кошельком.
-- **HTX** — в документации нет брокерского тега: недокументированный `channel_code` из ccxt в контрактных
-  ордерах и такой же префикс client-order-id на споте удалены.
-
-</details>
 
 ## client_id
 
@@ -1189,9 +1165,8 @@ SDK никогда не подменяет client_id вызывающего: н�
 Без собственного id SDK генерирует его сам (с тегом `client_id_prefix`, если задан).
 
 - `bytx.max_client_id_len(ex)` — максимальная длина id (Binance — 36 минус брокерский префикс
-  `x-<ID>`, который добавляет транспорт). Более длинные id отправляются без префикса, то есть без брокерской
-  атрибуции (WARNING, `binance_unattributed_counts()`); `create_exchange(..., client_id_strict=True)`
-  превращает это в `InvalidOrder`.
+  `x-<ID>`, который добавляет транспорт). Держите id в пределах этой длины;
+  `create_exchange(..., client_id_strict=True)` превращает более длинный id в `InvalidOrder`.
 - `bytx.generate_client_id(ex, prefix='d0123…')` — id в формате и длине биржи.
 - `bytx.owns(order, prefix, exchange)` — ваш ли ордер (Hyperliquid и BingX — без учёта регистра).
   `Order.client_id` — логический: брокерский префикс Binance отрезается.
@@ -1390,8 +1365,8 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev,ws,yaml]"
 
 ## Лицензия
 
-bytx можно бесплатно использовать по лицензии [BYTtrade Source-Available License](LICENSE): устанавливать и подключать в свои
+bytx можно бесплатно использовать по лицензии [BYTtrade Source-Available License](../LICENSE): устанавливать и подключать в свои
 скрипты, боты и приложения, в том числе в коммерческих целях. Копировать код в другие библиотеки, публиковать
 изменённые версии и предоставлять его как облачный сервис нельзя.
-Использует ccxt (MIT), см. [`NOTICE`](NOTICE).
+Использует ccxt (MIT), см. [`NOTICE`](../NOTICE).
 Не является финансовой рекомендацией; торговля криптовалютой сопряжена с риском потерь.

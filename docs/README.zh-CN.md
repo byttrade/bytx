@@ -1,12 +1,12 @@
 # bytx — 由 [BYTtrade](https://byttrade.com) 出品
 
-[English](README.md) | [Русский](README.ru.md) | **中文** | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
+[English](../README.md) | [Русский](README.ru.md) | **中文** | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
 
 面向加密货币交易所的强类型 **async** Python SDK：支持 Binance、Bybit、OKX、BingX、Hyperliquid、KuCoin、Bitget；
 Gate、MEXC、HTX 处于 beta 阶段。现货和永续合约使用同一套接口，WebSocket 具备智能重连，
 每个账户可单独配置代理，并提供面向剥头皮（scalping）交易的工具。
 
-> 完整文档：[docs/GUIDE.md](docs/GUIDE.md)（英文）
+> 完整文档：[docs/GUIDE.md](GUIDE.md)（英文）
 
 
 ![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
@@ -100,7 +100,7 @@ except errors.OrderStatusUnknown as e:
 | 返回 `dict` | dataclass 模型（`Order`、`Position`、`OrderBook`…），原始响应在 `.raw` 中 |
 | 裸露的 ccxt 异常 | 统一的 `BytxError` 异常体系，带 `.retryable` 标志 |
 | WS 抛异常后断开，重连得自己处理 | 监督器：退避 + 抖动、静默看门狗、自动重新订阅、订单簿重新同步、状态事件 |
-| 响应与交易所文档不一致 | 响应已对照交易所官方文档校验（[ground truth](docs/GUIDE.md#quality)），ccxt 的 bug 在 SDK 中修复 |
+| 响应与交易所文档不一致 | 响应已对照交易所官方文档校验（[ground truth](GUIDE.md#quality)），ccxt 的 bug 在 SDK 中修复 |
 
 此外：处处都是类型化模型，所有交易所统一的数量单位，每个账户独立代理，基于实时订单簿的模拟交易（paper trading），
 持仓日志，API key 权限检查和交易所健康状态 —— 而且在每个交易所上都是同一套接口。
@@ -130,36 +130,18 @@ except errors.OrderStatusUnknown as e:
 | 模拟盘 / testnet | ✓ | ✓ | ✓ | 合约 | ✓ | — | ✓ | ✓ | — | — |
 | 对冲模式 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
-各交易所的细节和限制（WS 下单、模拟环境的特殊行为等）见 [docs/GUIDE.md](docs/GUIDE.md)。
+各交易所的细节和限制（WS 下单、模拟环境的特殊行为等）见 [docs/GUIDE.md](GUIDE.md)。
 
 ## 示例
 
-[`examples/`](examples)：交易基础（[`00_trading_basics.py`](examples/00_trading_basics.py) —— 认证、现货与合约、
+[`examples/`](../examples)：交易基础（[`00_trading_basics.py`](../examples/00_trading_basics.py) —— 认证、现货与合约、
 限价单的下单 / 改单 / 撤单、减仓）、行情与订单簿、回测、套利扫描器、网格、定投（DCA）、Telegram 提醒、
 剥头皮策略骨架、多账户、带重启恢复的策略。
 交易类示例默认在模拟盘运行。不想写代码？同样的机器人和回测可以直接在 [byttrade.com](https://byttrade.com) 上运行。
 
-## 支持本项目
-
-BYTtrade SDK 免费使用。最好的感谢方式就是使用它：SDK 参与了交易所的合作伙伴计划，
-交易所本来就会收取的手续费中，有一部分会返还给项目。对你来说没有任何变化 —— 手续费和成交都不受影响
-（许多其他交易库也是这样做的）。感谢你帮助项目成长！
-
-<details>
-<summary>详细说明</summary>
-
-SDK 不会发送 ccxt 内置的 broker 标签。如果你不想使用合作伙伴标签，可以将其关闭：
-在 `set_broker_config(...)` / `create_exchange(..., broker=...)` 中传入 `BrokerConfig.disabled()`，
-或在环境变量中设置 `BYTX_BROKER_MODE=off`。
-
-- **Hyperliquid builder fee** —— 仅在显式配置（`BrokerConfig(hl_builder_address=…)`）且用户批准后才会启用。
-- **HTX** —— 文档中没有 broker 标签机制：ccxt 未公开的 `channel_code` 已被移除。
-
-</details>
-
 ## 许可证
 
-bytx 依据 [BYTtrade Source-Available License](LICENSE) 免费使用：你可以安装它，并在自己的脚本、机器人和应用中使用，包括商业用途。
+bytx 依据 [BYTtrade Source-Available License](../LICENSE) 免费使用：你可以安装它，并在自己的脚本、机器人和应用中使用，包括商业用途。
 不允许将其代码复制到其他库、发布修改版本，或将其作为托管服务提供。
-使用了 ccxt（MIT），见 [`NOTICE`](NOTICE)。
+使用了 ccxt（MIT），见 [`NOTICE`](../NOTICE)。
 不构成投资建议；加密货币交易存在亏损风险。

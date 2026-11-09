@@ -1,12 +1,12 @@
 # bytx — by [BYTtrade](https://byttrade.com)
 
-[English](README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | **한국어** | [Türkçe](README.tr.md)
+[English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | **한국어** | [Türkçe](README.tr.md)
 
 암호화폐 거래소를 위한 타입이 지정된 **async** Python SDK입니다. 지원 거래소: Binance, Bybit, OKX, BingX,
 Hyperliquid, KuCoin, Bitget, 베타: Gate, MEXC, HTX. 현물과 무기한 선물을 하나의 인터페이스로 다루고,
 스마트 재연결 기능을 갖춘 WebSocket, 계정별 프록시, 스캘핑을 위한 도구를 제공합니다.
 
-> 전체 문서: [docs/GUIDE.md](docs/GUIDE.md) (영어)
+> 전체 문서: [docs/GUIDE.md](GUIDE.md) (영어)
 
 
 ![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
@@ -102,7 +102,7 @@ except errors.OrderStatusUnknown as e:
 | `dict` 응답 | dataclass 모델(`Order`, `Position`, `OrderBook`…), 원본 응답은 `.raw` |
 | ccxt 예외 그대로 | `.retryable` 플래그가 있는 단일 `BytxError` 계층 |
 | WS가 예외로 죽고 재연결은 직접 구현 | 슈퍼바이저: backoff + jitter, 무응답 감시, 재구독, 오더북 재동기화, 상태 이벤트 |
-| 응답이 거래소 문서와 다름 | 거래소 공식 문서와 대조 검증([ground truth](docs/GUIDE.md#quality)), ccxt 버그는 SDK에서 수정 |
+| 응답이 거래소 문서와 다름 | 거래소 공식 문서와 대조 검증([ground truth](GUIDE.md#quality)), ccxt 버그는 SDK에서 수정 |
 
 그 밖에도: 어디서나 타입이 지정된 모델, 모든 거래소에서 하나의 수량 단위, 계정별 프록시, 실시간 오더북 기반
 페이퍼 트레이딩, 포지션 저널, API 키 권한 검사와 거래소 상태 확인 — 모두 모든 거래소에서 같은 인터페이스로
@@ -135,40 +135,20 @@ except errors.OrderStatusUnknown as e:
 | 헤지 모드 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 각주와 제한 사항(Binance/Bybit/Hyperliquid의 WS 주문 조건, MEXC 현물 WS 등)은
-[영문 README](docs/GUIDE.md)를 참고하세요.
+[영문 README](GUIDE.md)를 참고하세요.
 
 ## 예제
 
-[`examples/`](examples): 거래 기초([`00_trading_basics.py`](examples/00_trading_basics.py) — 인증, 현물과 선물,
+[`examples/`](../examples): 거래 기초([`00_trading_basics.py`](../examples/00_trading_basics.py) — 인증, 현물과 선물,
 지정가 주문 생성/정정/취소, 포지션 축소), 시장 데이터와 오더북, 백테스트, 차익거래 스캐너, 그리드, DCA,
 텔레그램 알림, 스캘퍼 뼈대, 멀티 계정, 재시작 복구가 가능한 전략.
 거래 예제는 기본적으로 데모 환경에서 실행됩니다.
 코드를 작성하고 싶지 않다면 같은 봇과 백테스트를 [byttrade.com](https://byttrade.com)에서 실행할 수 있습니다.
 
-## 프로젝트 후원
-
-BYTtrade SDK는 무료로 사용할 수 있습니다. 가장 좋은 감사 표현은 그냥 사용해 주시는 것입니다. SDK는 거래소
-파트너 프로그램에 참여하고 있으며, 거래소가 어차피 부과하는 수수료의 일부가 프로젝트에 돌아갑니다.
-수수료도 체결도 사용자에게는 달라지는 것이 없습니다(다른 많은 트레이딩 라이브러리도 같은 방식입니다).
-프로젝트의 성장을 도와주셔서 감사합니다!
-
-<details>
-<summary>자세히</summary>
-
-SDK는 ccxt에 내장된 브로커 태그를 전송하지 않습니다. 파트너 태그를 원하지 않으면 끌 수 있습니다:
-`set_broker_config(...)` / `create_exchange(..., broker=...)`에 `BrokerConfig.disabled()`를 전달하거나
-환경 변수 `BYTX_BROKER_MODE=off`를 설정하세요.
-
-- **Hyperliquid builder fee** — 명시적으로 설정한 경우에만(`BrokerConfig(hl_builder_address=…)`),
-  그리고 사용자가 승인한 후에만 적용됩니다.
-- **HTX** — 문서에 브로커 태그 방식이 없어 ccxt의 비공개 `channel_code`를 제거했습니다.
-
-</details>
-
 ## 라이선스
 
-bytx는 [BYTtrade Source-Available License](LICENSE)에 따라 무료로 사용할 수 있습니다. 자신의 스크립트, 봇, 애플리케이션에 설치해
+bytx는 [BYTtrade Source-Available License](../LICENSE)에 따라 무료로 사용할 수 있습니다. 자신의 스크립트, 봇, 애플리케이션에 설치해
 사용할 수 있으며 상업적 용도도 허용됩니다. 코드를 다른 라이브러리에 복사하거나, 수정한 버전을 배포하거나,
 호스팅 서비스로 제공하는 것은 허용되지 않습니다.
-ccxt(MIT)를 사용합니다. [`NOTICE`](NOTICE) 참고.
+ccxt(MIT)를 사용합니다. [`NOTICE`](../NOTICE) 참고.
 투자 조언이 아닙니다. 암호화폐 거래에는 손실 위험이 따릅니다.

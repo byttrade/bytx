@@ -1,13 +1,13 @@
 # bytx — [BYTtrade](https://byttrade.com) tarafından
 
-[English](README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Türkçe**
+[English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Türkçe**
 
 Kripto para borsaları için tip güvenli, **async** bir Python SDK'sı. Desteklenen borsalar: Binance, Bybit,
 OKX, BingX, Hyperliquid, KuCoin, Bitget; beta aşamasında: Gate, MEXC, HTX. Spot ve vadeli (perpetual) işlemler
 için tek bir arayüz, akıllı yeniden bağlanan WebSocket, hesap başına proxy ve scalping
 için araçlar sunar.
 
-> Tam dokümantasyon: [docs/GUIDE.md](docs/GUIDE.md) (İngilizce)
+> Tam dokümantasyon: [docs/GUIDE.md](GUIDE.md) (İngilizce)
 
 
 ![bytx](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
@@ -104,7 +104,7 @@ except errors.OrderStatusUnknown as e:
 | `dict` yanıtlar | dataclass modelleri (`Order`, `Position`, `OrderBook`…), ham yanıt `.raw` içinde |
 | Çıplak ccxt istisnaları | `.retryable` bayraklı tek bir `BytxError` hiyerarşisi |
 | WS bir istisnayla ölür, yeniden bağlanmak sizin işiniz | supervisor: backoff + jitter, sessizlik watchdog'u, yeniden abonelik, emir defteri senkronizasyonu, durum olayları |
-| Yanıtlar borsa dokümantasyonundan sapar | yanıtlar resmi borsa dokümantasyonuna göre doğrulanır ([ground truth](docs/GUIDE.md#quality)), ccxt hataları SDK'da düzeltilir |
+| Yanıtlar borsa dokümantasyonundan sapar | yanıtlar resmi borsa dokümantasyonuna göre doğrulanır ([ground truth](GUIDE.md#quality)), ccxt hataları SDK'da düzeltilir |
 
 Ayrıca: her yerde tipli modeller, tüm borsalarda tek hacim birimi, hesap başına proxy, canlı emir defterleri
 üzerinde paper trading, pozisyon günlüğü, API anahtarı yetki kontrolleri ve borsa sağlık durumu — hepsi her
@@ -137,42 +137,21 @@ borsada aynı arayüzle.
 | Hedge modu | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
 
 Dipnotlar ve kısıtlamalar (Binance/Bybit/Hyperliquid'de WS emir koşulları, MEXC spot WS vb.) için
-[İngilizce README](docs/GUIDE.md)'ye bakın.
+[İngilizce README](GUIDE.md)'ye bakın.
 
 ## Örnekler
 
-[`examples/`](examples): işlem temelleri ([`00_trading_basics.py`](examples/00_trading_basics.py) — kimlik doğrulama,
+[`examples/`](../examples): işlem temelleri ([`00_trading_basics.py`](../examples/00_trading_basics.py) — kimlik doğrulama,
 spot ve vadeli, limit emirler: verme / değiştirme / iptal, pozisyon azaltma), piyasa verisi ve emir defteri,
 backtest, arbitraj tarayıcı, grid, DCA, Telegram uyarıları, scalper iskeleti, çoklu hesap ve yeniden başlatmadan
 kurtulabilen bir strateji. İşlem örnekleri
 varsayılan olarak demo ortamında çalışır. Kod yazmak istemiyor musunuz? Aynı botlar ve backtest'ler
 [byttrade.com](https://byttrade.com) üzerinde de çalışır.
 
-## Projeyi destekleyin
-
-BYTtrade SDK ücretsizdir. En güzel teşekkür onu kullanmanızdır: SDK borsaların ortaklık
-programlarına katılır ve borsanın zaten aldığı komisyonun bir kısmı projeye gider. Sizin için hiçbir şey
-değişmez — ne komisyonlar ne de emir yürütme (diğer birçok işlem kütüphanesi de aynı şekilde
-çalışır). Projenin büyümesine yardım ettiğiniz için teşekkürler!
-
-<details>
-<summary>Ayrıntılar</summary>
-
-SDK, ccxt'nin yerleşik broker etiketlerini göndermez. Ortaklık etiketi size uygun değilse kapatabilirsiniz:
-`set_broker_config(...)` / `create_exchange(..., broker=...)` içinde `BrokerConfig.disabled()` kullanın
-veya ortam değişkeni olarak `BYTX_BROKER_MODE=off` ayarlayın.
-
-- **Hyperliquid builder fee** — yalnızca açıkça ayarlandığında (`BrokerConfig(hl_builder_address=…)`)
-  ve yalnızca kullanıcı onayladıktan sonra uygulanır.
-- **HTX** — dokümantasyonda broker etiketi mekanizması yoktur; ccxt'nin belgelenmemiş `channel_code`
-  parametresi kaldırılmıştır.
-
-</details>
-
 ## Lisans
 
-bytx, [BYTtrade Source-Available License](LICENSE) kapsamında ücretsiz kullanılabilir: kendi betiklerinize, botlarınıza ve
+bytx, [BYTtrade Source-Available License](../LICENSE) kapsamında ücretsiz kullanılabilir: kendi betiklerinize, botlarınıza ve
 uygulamalarınıza, ticari amaçlar dahil, kurup kullanabilirsiniz. Kodunu başka kütüphanelere kopyalamak,
 değiştirilmiş sürümlerini yayımlamak ve barındırılan bir hizmet olarak sunmak yasaktır.
-ccxt (MIT) kullanır, bkz. [`NOTICE`](NOTICE).
+ccxt (MIT) kullanır, bkz. [`NOTICE`](../NOTICE).
 Yatırım tavsiyesi değildir; kripto para ticareti kayıp riski taşır.

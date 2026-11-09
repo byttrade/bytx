@@ -122,5 +122,5 @@ files = [
 # only what package users need
 include = [
     "/src/bytx", "/examples",
-    "/README.md", "/README.*.md", "/LICENSE", "/NOTICE", "/pyproject.toml",
+    "/README.md", "/LICENSE", "/NOTICE", "/pyproject.toml",
 ]
