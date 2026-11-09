@@ -45,7 +45,7 @@ USD_LIKE = frozenset({'USD', 'USDT', 'USDC', 'VST'})
 
 _PACKAGES = {'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx',
              'kucoinfutures': 'kucoin', 'hyperliquid': 'hyperliquid',
-             'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx'}
+             'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx', 'blofin': 'blofin'}
 
 
 @dataclass(slots=True)

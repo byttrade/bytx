@@ -338,10 +338,11 @@ _LAST_MESSAGE = '_bytx_last_message'
 # KuCoin (docs Classic WebSocket → Introduction, «5. Subscribe»): {"id":…,"type":"subscribe","topic":…,
 # "response":true} → {"id":…,"type":"ack"} — «If the response is set to true, the system will return ack
 # messages after the subscription has succeeded»; ccxt kucoinfutures sends response: true.
+# BloFin (F#subscribe): {"op":"subscribe","args":[…]} → {"event":"subscribe","arg":{…}} / {"event":"error",…}.
 # HTX USDT-M (docs «Illustration of Request(req and rep) Data»): request {"op":"sub","cid":…,"topic":…}, response —
 # same op and cid («Server will returns the same value») with "err-code" (0 — success); market: {"sub":…,"id":…} →
 # {"id":…,"subbed":…} or {"id":…,"status":"error"}.
-SUB_ACK_EXCHANGES = frozenset({'bybit', 'bitget', 'okx', 'kucoinfutures', 'htx'})
+SUB_ACK_EXCHANGES = frozenset({'bybit', 'bitget', 'okx', 'kucoinfutures', 'htx', 'blofin'})
 _SUBS = '_bytx_subs'
 
 

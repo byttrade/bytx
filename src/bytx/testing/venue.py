@@ -11,7 +11,8 @@ position per symbol and orders by id: market fills immediately at ``price`` (``f
 share), reduce-only closes the position, conditional orders (TP/SL) wait. Each exchange's SL path matches
 the SDK: Binance via Algo API (``ccxt.request('algoOrder')``), Bybit via trading-stop, OKX via ``order-algo``,
 BingX / KuCoin / Hyperliquid via ``create_order`` with a trigger, Bitget via ``place-tpsl-order``, Gate via ``price_orders``,
-MEXC via ``stoporder/place`` by positionId, HTX via ``swap_cross_tpsl_order``. ``fail_stop`` / ``fail_close``: exchange
+MEXC via ``stoporder/place`` by positionId, HTX via ``swap_cross_tpsl_order``, BloFin via ``trade/order-tpsl``.
+``fail_stop`` / ``fail_close``: exchange
 rejection; ``calls``: all calls in order.
 
 Network is cut: any non-emulated ccxt request → :class:`NetworkDisabled` (a test cannot hit the
@@ -29,7 +30,8 @@ import ccxt
 MARKETS_DIR = Path(__file__).resolve().parent / 'markets'
 #: SDK name → ccxt id
 CCXT_IDS = {'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx', 'kucoin': 'kucoinfutures',
-            'hyperliquid': 'hyperliquid', 'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx'}
+            'hyperliquid': 'hyperliquid', 'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx',
+            'blofin': 'blofin'}
 NAMES = {v: k for k, v in CCXT_IDS.items()}
 #: default symbol in snapshots
 SYMBOLS = {k: ('BTC/USDC:USDC' if k == 'hyperliquid' else 'BTC/USDT:USDT') for k in CCXT_IDS}
@@ -233,6 +235,9 @@ class FakeVenue:
     # ─── SL via exchange paths ─────────────────────────────────────────────
     async def request(self, path: str, api: Any = 'public', method: str = 'GET', params: Any = None,
                       *args: Any, **kwargs: Any) -> Any:
+        if isinstance(params, list):                 # BloFin cancel-tpsl — an array
+            self.calls.append(('request', path, method, params))
+            return self.blofin_request(path, method, params)
         params = dict(params or {})
         self.calls.append(('request', path, method, params))
         if path == 'algoOrder' and method == 'POST':
@@ -249,6 +254,8 @@ class FakeVenue:
         if path == 'position/getPositionMode':
             # KuCoin Get Position Mode: the emulator is one-way ("0 -- One-Way Mode")
             return {'code': '200000', 'data': {'positionMode': 0}}
+        if path.startswith('trade/') and self.ex.ccxt.id == 'blofin':
+            return self.blofin_request(path, method, params)
         if path == 'stoporder/place':
             return self.mexc_place_stop(params)
         if path == 'stoporder/open_orders':
@@ -424,6 +431,40 @@ class FakeVenue:
             plan.update(status=6, _active=False)
             ok.append(oid)
         return {'status': 'ok', 'data': {'errors': failed, 'successes': ','.join(ok)}, 'ts': 1}
+
+    # BloFin: order-tpsl / orders-tpsl-pending / cancel-tpsl (state live — waiting, canceled — removed)
+    def blofin_request(self, path: str, method: str, params: Any) -> dict:
+        if path == 'trade/order-tpsl':
+            if self.fail_stop and params.get('slTriggerPrice') is not None:
+                raise ccxt.InvalidOrder('blofin {"code":"102038","msg":"SL trigger price should be lower"}')
+            oid = self._id()
+            self.plans[oid] = {k: v for k, v in params.items() if k != 'brokerId'} | {
+                'tpslId': oid, 'state': 'live', '_active': True, 'createTime': '1'}
+            return {'code': '0', 'msg': 'success', 'data': {'tpslId': oid, 'clientOrderId': params.get('clientOrderId'),
+                                                            'code': '0', 'msg': None}}
+        if path in ('trade/orders-tpsl-pending', 'trade/order-tpsl-detail'):
+            rows = [{k: v for k, v in p.items() if k != '_active'} for p in self.plans.values() if p.get('_active')
+                    and (not params.get('instId') or p.get('instId') == params['instId'])
+                    and (not params.get('tpslId') or p.get('tpslId') == params['tpslId'])]
+            if path == 'trade/order-tpsl-detail':
+                if not rows:
+                    raise ccxt.OrderNotFound('blofin {"code":"102068","msg":"not exist"}')
+                return {'code': '0', 'msg': 'success', 'data': rows[0]}
+            return {'code': '0', 'msg': 'success', 'data': rows}
+        if path == 'trade/orders-tpsl-history':
+            return {'code': '0', 'msg': 'success', 'data': [
+                {k: v for k, v in p.items() if k != '_active'} for p in self.plans.values()
+                if 'tpslId' in p and p['tpslId'] == params.get('tpslId')]}
+        if path == 'trade/cancel-tpsl':
+            out = []
+            for item in params:
+                plan = self.plans.get(str(item.get('tpslId')))
+                if plan is None or not plan.get('_active'):
+                    raise ccxt.OrderNotFound('blofin {"code":"1","data":[{"code":"102068"}]}')
+                plan.update(state='canceled', _active=False)
+                out.append({'tpslId': plan['tpslId'], 'clientOrderId': plan.get('clientOrderId'), 'code': '0'})
+            return {'code': '0', 'msg': 'success', 'data': out}
+        raise NetworkDisabled(f'bytx.testing: request not emulated: {method} {path}')
 
     def stops(self) -> list[dict]:
         """Active Bitget / Gate / MEXC / HTX TP/SL in exchange format."""

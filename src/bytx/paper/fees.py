@@ -15,7 +15,7 @@ from bytx.errors import ConfigError
 # ccxt id → bytx.exchanges package
 _PACKAGES = {'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx',
              'hyperliquid': 'hyperliquid', 'kucoin': 'kucoin', 'kucoinfutures': 'kucoin',
-             'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx'}
+             'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx', 'blofin': 'blofin'}
 
 
 @dataclass(frozen=True, slots=True)

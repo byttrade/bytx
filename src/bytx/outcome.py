@@ -47,6 +47,7 @@ _PACKAGES = {
     'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx',
     'kucoinfutures': 'kucoin', 'kucoin': 'kucoin', 'hyperliquid': 'hyperliquid',
     'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx',
+    'blofin': 'blofin',
 }
 # Text markers of an unknown outcome: Binance "Send status
 # unknown; execution status unknown" — overrides ccxt's "reject" class
@@ -90,7 +91,8 @@ def refine(exchange_id: Optional[str], error: BytxError) -> BytxError:
     :class:`InsufficientFunds`; an explicit parameter reject (the table's ``INVALID_ORDER``) —
     :class:`InvalidOrder`; rate limit (``RATE_LIMITED``: Bybit 10006 of a batch item, 170005, …) —
     :class:`RateLimited`; account position mode not selected (``POSITION_MODE_NOT_SET``, KuCoin 330011) —
-    :class:`ConfigError` with a hint. Unknown code or exchange — the error unchanged.
+    :class:`ConfigError` with a hint; key / broker setup (``CONFIG_ERRORS``: code → hint) — also
+    :class:`ConfigError`. Unknown code or exchange — the error unchanged.
     """
     table = codes_of(exchange_id or '')
     if table is None or isinstance(error, (NetworkError, PositionAlreadyClosed, ReduceExceedsPosition)):
@@ -115,6 +117,13 @@ def refine(exchange_id: Optional[str], error: BytxError) -> BytxError:
         limited = RateLimited(error.message, exchange=error.exchange, code=error.code, details=error.details)
         limited.__cause__ = error.__cause__ or error
         return limited
+    hint = next((h for c, h in getattr(table, 'CONFIG_ERRORS', {}).items() if c in codes), None)
+    if hint is not None:
+        # key / broker setup (BloFin 152011–152013): a retry will not help, the order outcome is clear — there is none
+        config = ConfigError(f'{hint}: {error.message}', exchange=error.exchange, code=error.code,
+                             details=error.details)
+        config.__cause__ = error.__cause__ or error
+        return config
     if codes & getattr(table, 'POSITION_MODE_NOT_SET', frozenset()):
         # KuCoin 330011: account position mode not selected — an account setting, retrying will not help
         mode = ConfigError(f'{table.POSITION_MODE_HINT}: {error.message}', exchange=error.exchange,

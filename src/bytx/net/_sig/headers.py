@@ -22,6 +22,9 @@ and the broker share of the fees goes to ccxt:
   WS order ``req_header`` (spot/futures.order_place); cannot be disabled via options;
 - mexc: header source = options['broker'] ('CCXT') on all signed spot and contract requests
   (MEXC Broker FAQ: «header 'source: Broker_ID'», spot and futures share one Broker_ID);
+- blofin: field brokerId = options['brokerId'] ('ec6dd3a7dd982d0b' — the ccxt code; '' / None also fall back to it) in
+  the body of trade/order, batch-orders (per element), order-tpsl (B#get-rebate-guide: «Orders placed without brokerId
+  will not be attributed»); our own — BLOFIN_BROKER_CODE on all placement requests, incl. order-algo and close-position;
 - htx: undocumented channel_code = options['broker']['id'] ('AA03022abc') in every contract
   order and the same prefix in spot client-order-id when no own id is given — removed; HTX docs have no
   broker tag mechanism, so the SDK does not set its own ID;
@@ -52,6 +55,7 @@ Env (all optional):
     BITGET_BROKER_ID           — X-CHANNEL-API-CODE header value (broker channel api code)
     GATE_CHANNEL_ID            — X-Gate-Channel-Id header value
     MEXC_BROKER_ID             — source header value (MEXC Broker_ID)
+    BLOFIN_BROKER_CODE         — BloFin brokerId (alnum ≤ 16) in the body of every order
 KuCoin — KC-API-PARTNER* partner signature (_install_kucoin_sign).
 """
 import base64
@@ -83,6 +87,7 @@ BITGET_HEADER = 'X-CHANNEL-API-CODE'
 CCXT_MEXC_BROKER_ID = 'CCXT'
 MEXC_HEADER = 'source'
 CCXT_HTX_BROKER_ID = 'AA03022abc'
+CCXT_BLOFIN_BROKER_ID = 'ec6dd3a7dd982d0b'
 GATE_HEADER = 'X-Gate-Channel-Id'
 # HTTP header value: printable ASCII without spaces (exchange docs don't specify the code format)
 _HEADER_VALUE_RE = re.compile(r'^[\x21-\x7e]{1,64}$')
@@ -114,6 +119,7 @@ ENV_BINGX = 'BINGX_SOURCE_KEY'
 ENV_BITGET = registry.BITGET
 ENV_GATE = registry.GATE
 ENV_MEXC = registry.MEXC
+ENV_BLOFIN = registry.BLOFIN
 
 _logged: set = set()
 
@@ -142,6 +148,7 @@ _SOURCE_KEYS = {
     'bitget': (registry.BITGET,),
     'gate': (registry.GATE,),
     'mexc': (registry.MEXC,),
+    'blofin': (registry.BLOFIN,),
     'kucoin': (registry.KUCOIN_AVAILABLE, registry.KUCOIN_PARTNER, registry.KUCOIN_KEY),
     'hyperliquid': (registry.HL_ADDRESS, registry.HL_TESTNET_ADDRESS, registry.HL_FEE),
 }
@@ -428,6 +435,56 @@ def _apply_htx(exchange, first: bool) -> str:
     return 'HTX: no broker tag in the docs — not set'
 
 
+# ─── blofin ─────────────────────────────────────────────────────────────────
+
+# B#get-rebate-guide: brokerId — «A combination of case-sensitive alphanumerics … up to 16 characters»
+_BLOFIN_CODE_RE = re.compile(r'^[A-Za-z0-9]{1,16}$')
+# Placement requests with the brokerId field (B#get-rebate-guide); amend-* and cancels have no such field
+BLOFIN_BROKER_PATHS = frozenset({'trade/order', 'trade/batch-orders', 'trade/order-tpsl', 'trade/order-algo',
+                                 'trade/close-position'})
+# GET /api/v1/user/query-apikey: type 1 — «Transaction» (the user's own key): brokerId → error 152011
+BLOFIN_TRANSACTION_KEY = 1
+
+
+def blofin_broker_code(exchange) -> Optional[str]:
+    """Our BloFin brokerId for this instance, or None (not set / disabled / key type=1)."""
+    code = (getattr(exchange, 'options', None) or {}).get('brokerId')
+    if not code or code == CCXT_BLOFIN_BROKER_ID or not _BLOFIN_CODE_RE.fullmatch(str(code)):
+        return None
+    if getattr(exchange, '_bytx_blofin_key_type', None) == BLOFIN_TRANSACTION_KEY:
+        return None
+    return str(code)
+
+
+def _install_blofin_sign(exchange) -> None:
+    """brokerId in the body before signing (the field is part of the signed JSON): our code, or no field at all. ccxt
+    sets options['brokerId'], and for ''/None its own 'ec6dd3a7dd982d0b' (create_order_request,
+    create_tpsl_order_request)."""
+    original_sign = exchange.sign
+
+    def sign(path, api='public', method='GET', params={}, *args, **kwargs):
+        if api == 'private' and method == 'POST' and path in BLOFIN_BROKER_PATHS:
+            code = blofin_broker_code(exchange)
+            for entry in (params if isinstance(params, list) else [params]):
+                if not isinstance(entry, dict):
+                    continue
+                if code:
+                    entry['brokerId'] = code
+                else:
+                    entry.pop('brokerId', None)
+        return original_sign(path, api, method, params, *args, **kwargs)
+
+    exchange.sign = sign
+
+
+def _apply_blofin(exchange, first: bool) -> str:
+    code = _env(ENV_BLOFIN, _BLOFIN_CODE_RE, exchange)
+    exchange.options['brokerId'] = code or ''
+    if first:
+        _install_blofin_sign(exchange)
+    return _flag(ENV_BLOFIN, code)
+
+
 # ─── kucoin / kucoinfutures ─────────────────────────────────────────────────
 
 def kucoin_partner_sign(*, timestamp: str, partner: str, api_key: str, broker_key: str) -> str:
@@ -530,6 +587,8 @@ def apply_broker_ids(exchange, config: Optional[BrokerConfig] = None) -> None:
         info = _apply_gate(exchange, first)
     elif ex_id == 'mexc':
         info = _apply_mexc(exchange, first)
+    elif ex_id == 'blofin':
+        info = _apply_blofin(exchange, first)
     elif ex_id in ('htx', 'huobi'):
         info = _apply_htx(exchange, first)
     elif ex_id in ('kucoin', 'kucoinfutures'):
@@ -548,5 +607,6 @@ __all__ = [
     'CCXT_BINANCE_BROKER_IDS', 'CCXT_OKX_BROKER_ID',
     'ENV_BINANCE_SPOT', 'ENV_BINANCE_FUTURES', 'ENV_OKX', 'ENV_BYBIT', 'ENV_BINGX', 'ENV_BITGET', 'ENV_GATE',
     'ENV_MEXC', 'CCXT_BITGET_BROKER_ID', 'CCXT_GATE_CHANNEL_ID', 'BITGET_HEADER', 'GATE_HEADER',
-    'CCXT_MEXC_BROKER_ID', 'MEXC_HEADER', 'CCXT_HTX_BROKER_ID',
+    'CCXT_MEXC_BROKER_ID', 'MEXC_HEADER', 'CCXT_HTX_BROKER_ID', 'CCXT_BLOFIN_BROKER_ID', 'ENV_BLOFIN',
+    'blofin_broker_code',
 ]

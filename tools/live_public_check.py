@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import sys
 import time
 import traceback
@@ -22,7 +23,8 @@ from typing import Any, Awaitable, Callable, Optional
 
 from bytx import create_exchange, errors
 
-ALL_EXCHANGES = ('binance', 'bybit', 'okx', 'bingx', 'kucoin', 'hyperliquid', 'bitget', 'gate', 'mexc', 'htx')
+ALL_EXCHANGES = ('binance', 'bybit', 'okx', 'bingx', 'kucoin', 'hyperliquid', 'bitget', 'gate', 'mexc', 'htx',
+                 'blofin')
 SYMBOL = {'hyperliquid': 'BTC/USDC'}            # others — BTC/USDT
 SPOT_SYMBOL = {'hyperliquid': 'HYPE/USDC'}       # liquid HL spot pair
 FRESH_MS = 120_000                               # a "fresh" timestamp is at most 2 minutes old
@@ -82,7 +84,9 @@ class Runner:
         return result
 
     async def run(self) -> list[Check]:
-        ex = create_exchange(self.name, market=self.market, demo=self.demo)
+        # exchange proxy from env: <NAME>_PROXY (e.g. BINANCE_PROXY)
+        proxy = os.environ.get(f'{self.name.upper()}_PROXY') or None
+        ex = create_exchange(self.name, market=self.market, demo=self.demo, proxy=proxy)
         try:
             await self.step('connect', ex.connect)
             markets = await self.step('markets', lambda: ex.markets(), _v_markets)

@@ -27,6 +27,7 @@ _MODULES = {
     'gate': 'gate',
     'mexc': 'mexc',
     'htx': 'htx',
+    'blofin': 'blofin',
 }
 _APPLIED_ATTR = '_bytx_ccxt_fixes'
 

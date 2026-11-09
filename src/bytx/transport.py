@@ -5,6 +5,7 @@ and WebSocket. Broker tags are set on the instance right after creation.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 from urllib.parse import urlsplit
@@ -33,6 +34,7 @@ _CREDENTIALS: dict[str, tuple[str, ...]] = {
     'okx': ('api_key', 'secret', 'password'),
     'kucoin': ('api_key', 'secret', 'password'),
     'bitget': ('api_key', 'secret', 'password'),   # Passphrase (Bitget docs "REST API → Signature")
+    'blofin': ('api_key', 'secret', 'password'),   # passphrase (BloFin docs "Generating an API Key")
     'hyperliquid': ('wallet_address', 'private_key'),
 }
 
@@ -90,12 +92,57 @@ class Proxy:
         return f'{parts.hostname}:{parts.port}'
 
 
+def _install_socks_ws(ex: Any, url: str) -> None:
+    """WS over SOCKS: ccxt 4.4.65 opens WS on the shared aiohttp session with ``ws_connect(proxy=<socks-url>)`` —
+    aiohttp only goes through HTTP(S) proxies that way, so the SOCKS connection bypassed the proxy.
+    Each WS client gets its own session with ``aiohttp_socks.ProxyConnector`` and ``ws_connect`` without ``proxy=``;
+    the sessions are closed together with the instance."""
+    original_client = ex.client
+    original_close = ex.close
+    sessions: list = []
+
+    def client(ws_url: str) -> Any:
+        c = original_client(ws_url)
+        if getattr(c, '_bytx_socks', False):
+            return c
+        c.proxy = None
+        original_create = c.create_connection
+
+        def create_connection(session: Any) -> Any:
+            import aiohttp
+            from aiohttp_socks import ProxyConnector
+            previous = getattr(c, '_bytx_socks_session', None)
+            if previous is not None and previous in sessions:
+                # reconnect: the client's previous session is no longer needed (sessions do not pile up)
+                sessions.remove(previous)
+                asyncio.ensure_future(previous.close())
+            own = aiohttp.ClientSession(connector=ProxyConnector.from_url(url))
+            sessions.append(own)
+            c._bytx_socks_session = own
+            return original_create(own)
+
+        c.create_connection = create_connection
+        c._bytx_socks = True
+        return c
+
+    async def close() -> Any:
+        try:
+            return await original_close()
+        finally:
+            while sessions:
+                await sessions.pop().close()
+
+    ex.client = client
+    ex.close = close
+
+
 def _apply_proxy(ex: Any, proxy: Optional[Proxy]) -> None:
     if proxy is None:
         return
     if proxy.is_socks:
         ex.socksProxy = proxy.url
         ex.wsSocksProxy = proxy.url
+        _install_socks_ws(ex, proxy.url)
     else:
         ex.httpsProxy = proxy.url
         ex.wsProxy = proxy.url

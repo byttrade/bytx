@@ -3,7 +3,7 @@
 [English](GUIDE.md) | **Русский** · [← README](README.ru.md)
 
 Типизированный **асинхронный** Python SDK для криптобирж: Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget;
-в бете: Gate, MEXC, HTX.
+в бете: Gate, MEXC, HTX, BloFin (фьючерсы USDT-M).
 Единый интерфейс для спота и бессрочных фьючерсов, WebSocket с умными переподключениями,
 прокси на каждый аккаунт и инструменты для скальпинга.
 
@@ -199,6 +199,7 @@ KuCoin sandbox) — свой лимитер IP: бан demo-хоста не де
   | KuCoin, Hyperliquid | make-before-break: до 200 стоп-ордеров на контракт (KuCoin, документация), reduce-only триггеры (HL, testnet) | нет |
   | Bitget | `modify-tpsl-order` на месте: тот же orderId и clientOid (demo 2026-11-04). `pos_loss` / `pos_profit` (вся позиция) — один на сторону: вторая постановка заменяет прежний с прежним clientOid, поэтому тот же объём — всегда на месте, новый `client_id` не применяется (warning). `loss_plan` / `profit_plan` с объёмом — несколько на сторону: с новым `client_id` или объёмом — make-before-break (вся позиция → объём: новый `loss_plan`, затем снятие `pos_loss`) | нет |
   | Gate, MEXC, HTX | отмена, затем новый (два TP/SL на позицию по документации не сверены) | время одного запроса |
+  | BloFin | `amend-tpsl` на месте: тот же tpslId и clientOrderId, новый триггер / тип цены / объём; с новым `client_id` — make-before-break | нет |
 
   Make-before-break: новый ставится первым; отказ нового — прежний не тронут (`old='alive'`,
   `new='rejected'`), исход неизвестен — тоже (`new='unknown'`, ищите по `client_ids`); прежний снять
@@ -278,13 +279,13 @@ KuCoin sandbox) — свой лимитер IP: бан demo-хоста не де
 - `Market.min_cost`: Bybit `minNotionalValue`, Binance
   `MIN_NOTIONAL`, Hyperliquid $10, иначе ccxt `limits.cost.min`; `None` — ограничения нет.
 
-| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (бета) | MEXC (бета) | HTX (бета) |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Спот | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ |
-| Бессрочные фьючерсы | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
-| Демо / тестнет | ✓ | ✓ | ✓ | фьючерсы | ✓ | — ² | ✓ ³ | ✓ ⁴ | — ⁷ | — ⁷ |
-| Ордера через WS | ¹ | ¹ | ✓ | — | ¹ | — | — | ✓ | — | — |
-| Hedge-режим | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — ⁵ | ✓ | ✓ |
+| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (бета) | MEXC (бета) | HTX (бета) | BloFin (бета) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Спот | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ | — ⁹ |
+| Бессрочные фьючерсы | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
+| Демо / тестнет | ✓ | ✓ | ✓ | фьючерсы | ✓ | — ² | ✓ ³ | ✓ ⁴ | — ⁷ | — ⁷ | ✓ |
+| Ордера через WS | ¹ | ¹ | ✓ | — | ¹ | — | — | ✓ | — | — | — |
+| Hedge-режим | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — ⁵ | ✓ | ✓ | ✓ ⁹ |
 
 ¹ Методы `ws_*` сами выбирают транспорт (WS или REST) — вызов в любом случае одинаковый.
 ² KuCoin закрыл песочницу (хосты не отвечают) — демо нет.
@@ -295,6 +296,8 @@ KuCoin sandbox) — свой лимитер IP: бан demo-хоста не де
 ⁶ MEXC спот: WS-потоки — NotSupported (биржа шлёт protobuf, ccxt 4.4.65 использует старые JSON-каналы); REST — ✓.
 ⁷ У MEXC в документации нет тестнета; у HTX указано «Testnet (Stopped)»: `demo=True` → `NotSupported`, тестируйте на paper.
 ⁸ В документации HTX нет механизма брокерского тега: недокументированный `channel_code` из ccxt удалён, своего ID нет.
+⁹ BloFin: спот пока не поддержан; режим Multi-Position не поддерживается — `ConfigError` до торговли
+(см. «BloFin (бета)» ниже).
 
 `demo=True` — собственный тестнет/демо биржи (Bybit — demo trading, остальные — sandbox биржи),
 **кроме Binance** — см. ниже. Это не симулятор; симулятор в памяти —
@@ -948,6 +951,34 @@ BTC/ETH/LTC (`unavailableContracts`), контракт с `apiAllowed=false` —
 На MEXC `check_key()` определяет право торговли пробой — отменой заведомо несуществующего ордера
 (2040 — разрешено, 704 — нет); право вывода и список IP MEXC не возвращает.
 
+## BloFin (бета)
+
+Бессрочные фьючерсы USDT-M: `create_exchange('blofin', api_key=…, secret=…, password=…)`; `demo=True` — demo-хост
+BloFin. Правила — по официальной документации, расхождения ccxt 4.4.65 исправлены в `exchanges/blofin/ccxt_fixes.py`,
+код биржи — в `exchanges/blofin/`. Спот пока не поддержан (`market='spot'` → `ConfigError`).
+
+```python
+ex = create_exchange('blofin', api_key=…, secret=…, password=…, margin_mode='cross')  # режим уходит в каждом ордере
+```
+
+- Режим маржи уходит в каждом ордере (`margin_mode` обязателен); режим позиций (one-way / hedge) читается с аккаунта.
+  Multi-Position (каждый вход — отдельная позиция с `positionId`) не поддерживается: `ConfigError` до торговли —
+  выключите его в настройках BloFin.
+- Объём — в контрактах (`contractValue`, шаг `lotSize`, минимум `minSize`) и проверяется до отправки: биржа отвечает
+  кодом 152002 и на неверный объём, и на плечо выше `maxLeverage` инструмента.
+- Ордера: post_only / IOC / FOK через `orderType`, изменение на месте (`amend-order`), ордер по id или client_id
+  (`order-detail`), пакеты до 20 ордеров одного символа. TP/SL: TP и SL одной заявкой `order-tpsl` с явным типом цены,
+  перенос на месте (`amend-tpsl`); список, деталь и история.
+- WebSocket: стакан с проверкой `prevSeqId` (разрыв — переподписка), TP/SL через канал `orders-algo`, свои сделки из
+  `fills-history` при росте исполнения ордера.
+- Также: тиры плеча (`position-tiers`), закрытые позиции, фандинг и PnL для портфеля, проверка ключа
+  (`query-apikey`), время сервера по заголовку `Date`.
+
+Исправлено относительно ccxt 4.4.65: `settle` рынка из `settleCurrency` (рынки SDK — только USDT-M), терялись
+post_only / IOC / FOK, уникальный `ACCESS-NONCE` (ccxt повторял timestamp — параллельные запросы отвергались), ошибки
+в `data`-объекте при `code` 0, коды 150004 / 103003 (средства), 102068 / 102067 / 1000 (ордера нет), 429 (лимит),
+плечо до `maxLeverage` инструмента, `batch-leverage-info` вместо устаревшего `leverage-info`.
+
 ## Прокси и несколько аккаунтов
 
 ```python
@@ -1037,7 +1068,7 @@ trades = await ex.history.trades('BTC/USDT:USDT', since=t1 - 3_600_000)   # Bina
 - **pandas / polars** — extras: `pip install 'bytx[pandas]'`, `[polars]`, `[parquet]`, `[data]`
   (pandas + pyarrow). Ядро SDK работает без них.
 - **`bytx.testing`** — эмуляторы для тестирования ваших стратегий, без сети и ключей:
-  `fake_exchange('bybit', price=50_000)` возвращает обычный `Exchange` для любой из 10 бирж на снимках рынков из
+  `fake_exchange('bybit', price=50_000)` возвращает обычный `Exchange` для любой из 11 бирж на снимках рынков из
   документации (шаг, минимумы и contractSize как на бирже, путь TP/SL SDK) плюс эмулятор `FakeVenue`.
   `paper_exchange('okx', bids=..., asks=...)` возвращает paper-аккаунт на виртуальных часах; рынок задаётся через
   `set_book` / `add_trade`, время двигается через `drive`. Плагин pytest включается через
@@ -1147,7 +1178,7 @@ instrument(ex)                             # спаны OpenTelemetry
 - Не сериализуйте вызовы `Exchange` собственной реентерабельной блокировкой: `place_orders`, `cancel_all` и
   `close_all` внутри используют `asyncio.gather`, дочерние задачи блокировкой не владеют — дедлок.
 - `ex.name` — стабильное имя в SDK: binance, bybit, okx, bingx, hyperliquid, kucoin, bitget, gate,
-  mexc, htx.
+  mexc, htx, blofin.
 - `ex.market(symbol)` отдаёт `settle` и `raw` (словарь рынка ccxt); `ex.candles(...)` и
   `ex.leverage_tiers(symbol)` работают без ключей. `ex.close()` идемпотентен и останавливает
   WS-потоки и фоновую синхронизацию времени. Не вызывайте `ex.ccxt.close()` напрямую: фоновые задачи останутся
@@ -1179,6 +1210,7 @@ SDK никогда не подменяет client_id вызывающего: н�
   всегда `t-…` (`generate_client_id`, client_id нового поколения, `owns` игнорирует `t-`); id без
   префикса — `InvalidOrder`. Bitget: `clientOid` до 50 символов (коды 40304/40305). MEXC: `externalOid` до 32
   (код 2030). HTX своп: `client_order_id` — целое 1…9223372036854775807 (код 1065), спот — до 64 символов.
+  BloFin: `clientOrderId` — `[A-Za-z0-9_]{1,32}` (`_` принимается — demo 2026-11-09).
 - `create_exchange(..., pre_submit=hook)` — `hook(request)` (может быть async) выполняется перед каждым запросом
   на размещение с финальным `client_id`: сохраните намерение до отправки. Исключение в хуке отменяет запрос.
 

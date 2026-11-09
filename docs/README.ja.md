@@ -3,7 +3,7 @@
 [English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | **日本語** | [한국어](README.ko.md) | [Türkçe](README.tr.md)
 
 暗号資産取引所向けの、型付き **async** Python SDK です。対応取引所は Binance、Bybit、OKX、BingX、
-Hyperliquid、KuCoin、Bitget、ベータ版として Gate、MEXC、HTX。現物と無期限先物をひとつのインターフェースで扱え、
+Hyperliquid、KuCoin、Bitget、ベータ版として Gate、MEXC、HTX、BloFin（USDT-M 先物）。現物と無期限先物をひとつのインターフェースで扱え、
 スマートな再接続を備えた WebSocket、アカウントごとのプロキシ、スキャルピング向けのツールを提供します。
 
 > 完全なドキュメント: [docs/GUIDE.md](GUIDE.md)(英語)
@@ -126,13 +126,13 @@ except errors.OrderStatusUnknown as e:
 
 ## 対応取引所
 
-| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| 現物 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 無期限先物 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
-| デモ / テストネット | ✓ | ✓ | ✓ | 先物 | ✓ | — | ✓ | ✓ | — | — |
-| WS 経由の注文 | ✓ | ✓ | ✓ | — | ✓ | — | — | ✓ | — | — |
-| ヘッジモード | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
+| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| 現物 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| 無期限先物 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
+| デモ / テストネット | ✓ | ✓ | ✓ | 先物 | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| WS 経由の注文 | ✓ | ✓ | ✓ | — | ✓ | — | — | ✓ | — | — | — |
+| ヘッジモード | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ | ✓ |
 
 注記と制限事項(Binance/Bybit/Hyperliquid の WS 注文の条件、MEXC 現物の WS など)は
 [英語版 README](GUIDE.md) を参照してください。

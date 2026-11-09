@@ -3,7 +3,7 @@
 [English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | **Español** | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
 
 SDK de Python **async** y tipado para exchanges de criptomonedas: Binance, Bybit, OKX, BingX, Hyperliquid,
-KuCoin, Bitget; en beta: Gate, MEXC, HTX. Una sola interfaz para spot y futuros perpetuos, WebSocket con
+KuCoin, Bitget; en beta: Gate, MEXC, HTX, BloFin (futuros USDT-M). Una sola interfaz para spot y futuros perpetuos, WebSocket con
 reconexión inteligente, un proxy por cuenta y herramientas para scalping.
 
 > Documentación completa: [docs/GUIDE.md](GUIDE.md) (inglés)
@@ -127,12 +127,12 @@ key y estado del exchange; todo con la misma interfaz en cada exchange.
 
 ## Exchanges soportados
 
-| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Futuros perpetuos | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
-| Demo / testnet | ✓ | ✓ | ✓ | futuros | ✓ | — | ✓ | ✓ | — | — |
-| Modo hedge | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
+| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Futuros perpetuos | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
+| Demo / testnet | ✓ | ✓ | ✓ | futuros | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| Modo hedge | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ | ✓ |
 
 Los detalles y limitaciones de cada exchange (órdenes por WS, particularidades de los entornos demo, etc.)
 están en [docs/GUIDE.md](GUIDE.md).

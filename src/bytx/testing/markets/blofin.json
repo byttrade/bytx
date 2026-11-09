@@ -1,0 +1,474 @@
+{
+ "_note": "Offline: raw instrument records — verbatim examples from exchange docs (``tests/ground_truth/<exchange>/``) plus variants with a different tick/minimum/contract size (only these fields change). Parsed by the real ccxt 4.4.65 ``parse_market`` / ``fetch_markets``; the result (the ccxt market dict, as legacy code and ``Exchange`` see it) is written to ``src/bytx/testing/markets/<ccxt id>.json`` (public ``bytx.testing`` snapshots).",
+ "exchange": "blofin",
+ "markets": [
+  {
+   "id": "BTC-USDT",
+   "lowercaseId": null,
+   "symbol": "BTC/USDT:USDT",
+   "base": "BTC",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "BTC",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0002,
+   "contractSize": 0.001,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.5
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1638333031000,
+   "info": {
+    "instId": "BTC-USDT",
+    "baseCurrency": "BTC",
+    "quoteCurrency": "USDT",
+    "contractValue": "0.001",
+    "listTime": "1638333031000",
+    "expireTime": "1704124800000",
+    "offTime": "",
+    "maxLeverage": "125",
+    "minSize": "0.1",
+    "lotSize": "0.1",
+    "tickSize": "0.5",
+    "instType": "SWAP",
+    "contractType": "linear",
+    "maxLimitSize": "100000000",
+    "maxMarketSize": "1000000",
+    "state": "live",
+    "settleCurrency": "USDT",
+    "assetClass": "Crypto",
+    "apiPermission": "full"
+   }
+  },
+  {
+   "id": "ETH-USDT",
+   "lowercaseId": null,
+   "symbol": "ETH/USDT:USDT",
+   "base": "ETH",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "ETH",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0002,
+   "contractSize": 0.01,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 0.01
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1638333031000,
+   "info": {
+    "instId": "ETH-USDT",
+    "baseCurrency": "ETH",
+    "quoteCurrency": "USDT",
+    "contractValue": "0.01",
+    "listTime": "1638333031000",
+    "expireTime": "1704124800000",
+    "offTime": "",
+    "maxLeverage": "125",
+    "minSize": "0.1",
+    "lotSize": "0.1",
+    "tickSize": "0.01",
+    "instType": "SWAP",
+    "contractType": "linear",
+    "maxLimitSize": "100000000",
+    "maxMarketSize": "1000000",
+    "state": "live",
+    "settleCurrency": "USDT",
+    "assetClass": "Crypto",
+    "apiPermission": "full"
+   }
+  },
+  {
+   "id": "SOL-USDT",
+   "lowercaseId": null,
+   "symbol": "SOL/USDT:USDT",
+   "base": "SOL",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "SOL",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0002,
+   "contractSize": 1.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.001
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1638333031000,
+   "info": {
+    "instId": "SOL-USDT",
+    "baseCurrency": "SOL",
+    "quoteCurrency": "USDT",
+    "contractValue": "1",
+    "listTime": "1638333031000",
+    "expireTime": "1704124800000",
+    "offTime": "",
+    "maxLeverage": "125",
+    "minSize": "1",
+    "lotSize": "1",
+    "tickSize": "0.001",
+    "instType": "SWAP",
+    "contractType": "linear",
+    "maxLimitSize": "100000000",
+    "maxMarketSize": "1000000",
+    "state": "live",
+    "settleCurrency": "USDT",
+    "assetClass": "Crypto",
+    "apiPermission": "full"
+   }
+  },
+  {
+   "id": "DOGE-USDT",
+   "lowercaseId": null,
+   "symbol": "DOGE/USDT:USDT",
+   "base": "DOGE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "DOGE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0002,
+   "contractSize": 1000.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 0.1,
+    "price": 1e-05
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 0.1,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1638333031000,
+   "info": {
+    "instId": "DOGE-USDT",
+    "baseCurrency": "DOGE",
+    "quoteCurrency": "USDT",
+    "contractValue": "1000",
+    "listTime": "1638333031000",
+    "expireTime": "1704124800000",
+    "offTime": "",
+    "maxLeverage": "125",
+    "minSize": "0.1",
+    "lotSize": "0.1",
+    "tickSize": "0.00001",
+    "instType": "SWAP",
+    "contractType": "linear",
+    "maxLimitSize": "100000000",
+    "maxMarketSize": "1000000",
+    "state": "live",
+    "settleCurrency": "USDT",
+    "assetClass": "Crypto",
+    "apiPermission": "full"
+   }
+  },
+  {
+   "id": "XRP-USDT",
+   "lowercaseId": null,
+   "symbol": "XRP/USDT:USDT",
+   "base": "XRP",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "XRP",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0002,
+   "contractSize": 100.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 0.0001
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1638333031000,
+   "info": {
+    "instId": "XRP-USDT",
+    "baseCurrency": "XRP",
+    "quoteCurrency": "USDT",
+    "contractValue": "100",
+    "listTime": "1638333031000",
+    "expireTime": "1704124800000",
+    "offTime": "",
+    "maxLeverage": "125",
+    "minSize": "1",
+    "lotSize": "1",
+    "tickSize": "0.0001",
+    "instType": "SWAP",
+    "contractType": "linear",
+    "maxLimitSize": "100000000",
+    "maxMarketSize": "1000000",
+    "state": "live",
+    "settleCurrency": "USDT",
+    "assetClass": "Crypto",
+    "apiPermission": "full"
+   }
+  },
+  {
+   "id": "PEPE-USDT",
+   "lowercaseId": null,
+   "symbol": "PEPE/USDT:USDT",
+   "base": "PEPE",
+   "quote": "USDT",
+   "settle": "USDT",
+   "baseId": "PEPE",
+   "quoteId": "USDT",
+   "settleId": "USDT",
+   "type": "swap",
+   "spot": false,
+   "margin": false,
+   "swap": true,
+   "future": false,
+   "option": false,
+   "index": null,
+   "active": true,
+   "contract": true,
+   "linear": true,
+   "inverse": false,
+   "subType": null,
+   "taker": 0.0006,
+   "maker": 0.0002,
+   "contractSize": 10000000.0,
+   "expiry": null,
+   "expiryDatetime": null,
+   "strike": null,
+   "optionType": null,
+   "precision": {
+    "amount": 1.0,
+    "price": 1e-10
+   },
+   "limits": {
+    "leverage": {
+     "min": 1.0,
+     "max": 125.0
+    },
+    "amount": {
+     "min": 1.0,
+     "max": null
+    },
+    "price": {
+     "min": null,
+     "max": null
+    },
+    "cost": {
+     "min": null,
+     "max": null
+    }
+   },
+   "marginModes": {
+    "cross": null,
+    "isolated": null
+   },
+   "created": 1638333031000,
+   "info": {
+    "instId": "PEPE-USDT",
+    "baseCurrency": "PEPE",
+    "quoteCurrency": "USDT",
+    "contractValue": "10000000",
+    "listTime": "1638333031000",
+    "expireTime": "1704124800000",
+    "offTime": "",
+    "maxLeverage": "125",
+    "minSize": "1",
+    "lotSize": "1",
+    "tickSize": "0.0000000001",
+    "instType": "SWAP",
+    "contractType": "linear",
+    "maxLimitSize": "100000000",
+    "maxMarketSize": "1000000",
+    "state": "live",
+    "settleCurrency": "USDT",
+    "assetClass": "Crypto",
+    "apiPermission": "full"
+   }
+  }
+ ]
+}

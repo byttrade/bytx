@@ -29,7 +29,8 @@ def parse(info: KeyInfo, response: dict, market_type: str) -> None:
     if perms:
         info.can_read = 'General' in perms
         info.can_trade = ('Futures' in perms) if market_type == 'swap' else ('Spot' in perms)
-        info.can_withdraw = 'Transfer' in perms
+        # fail-safe: older KuCoin keys report «Withdrawal» — also a withdraw permission
+        info.can_withdraw = 'Transfer' in perms or 'Withdrawal' in perms
         info.can_transfer = 'InnerTransfer' in perms
     if 'ipWhitelist' in r or perms:
         ips = [ip.strip() for ip in str(r.get('ipWhitelist') or '').split(',') if ip.strip()]

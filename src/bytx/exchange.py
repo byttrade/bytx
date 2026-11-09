@@ -116,7 +116,7 @@ _SEPARATE_TP_SL = frozenset({'binance', 'hyperliquid', 'gate'})
 _CHECK_PRICE_TTL = 5.0
 # s: how long to wait for a market order fill from the ``ex.stream.orders()`` stream before reading it over REST
 _WS_FILL_WAIT = 0.5
-_MODE_IN_ORDER = frozenset({'okx', 'kucoinfutures', 'bitget', 'mexc', 'htx'})
+_MODE_IN_ORDER = frozenset({'okx', 'kucoinfutures', 'bitget', 'mexc', 'htx', 'blofin'})
 # Leverage is sent with the order (KuCoin leverage, MEXC leverage "must be provided when opening", HTX lever_rate is
 # required and equals the open position's leverage); set_leverage only stores the value, so does set_margin_mode,
 # except on KuCoin: there the mode also belongs to the symbol (Switch Margin Mode, exchanges/kucoin/margin_mode.py)
@@ -129,7 +129,7 @@ _ONE_WAY_ONLY = {'hyperliquid', 'kucoinfutures', 'gate'}
 _ONE_WAY_CHECKED = {'kucoinfutures'}
 # set_leverage(side=): exchanges where leverage is set for one side of a hedge position (Set leverage docs) —
 # OKX posSide (isolated, long/short), BingX side LONG/SHORT, Bybit buyLeverage/sellLeverage
-_SIDE_LEVERAGE = frozenset({'okx', 'bingx', 'bybit'})
+_SIDE_LEVERAGE = frozenset({'okx', 'bingx', 'bybit', 'blofin'})
 
 
 def _leverage_str(value: float) -> str:
@@ -158,6 +158,8 @@ def _applied_leverage(exchange_id: str, response: Any) -> Optional[float]:
         from bytx.exchanges.bitget.leverage import applied_leverage
     elif exchange_id == 'gate':
         from bytx.exchanges.gate.leverage import applied_leverage
+    elif exchange_id == 'blofin':
+        from bytx.exchanges.blofin.leverage import applied_leverage
     else:
         return None
     return applied_leverage(response)
@@ -194,7 +196,7 @@ class Exchange:
         # bot tag at the start of every generated client_id
         self.client_id_prefix = check_client_id_prefix(ccxt_exchange.id, client_id_prefix, market_type)
         # a client_id that does not fit in 36 with the Binance broker prefix raises
-        # InvalidOrder before sending (False: sent without attribution, binance_unattributed_counts counter)
+        # InvalidOrder before sending (False: the cid is deterministically shortened, the prefix is kept)
         self.client_id_strict = bool(client_id_strict)
         # hook before the placement network call (see create_exchange)
         self.pre_submit = pre_submit
@@ -228,6 +230,8 @@ class Exchange:
             None if ccxt_exchange.id in _ONE_WAY_CHECKED else False if ccxt_exchange.id in _ONE_WAY_ONLY else hedge)
         # Bybit: position mode is per symbol (symbol > coin > default), cached per symbol; '' means no symbol
         self._hedge_by_symbol: dict[str, bool] = {}
+        # BloFin: Multi-Position on the account (seen in connect) — every order is refused
+        self._blofin_mode_error: Optional[ConfigError] = None
         self._leverage: dict[str, float] = {}
         self._connected = False
         self._close_gen = 0      # bumped on every close(): a connect started before close does not revive background tasks
@@ -284,6 +288,21 @@ class Exchange:
             except BytxError as e:
                 from loguru import logger
                 logger.debug(f'{self.name}: Bybit account type not learned during warm-up: {e.message or e}')
+        if self._ex.id == 'blofin' and self._ex.apiKey:
+            # key type (query-apikey) decides whether brokerId is sent; on failure the type is unknown, brokerId is sent
+            from bytx.exchanges.blofin.api_key import load_key_type
+            from bytx.exchanges.blofin.leverage import position_mode as blofin_position_mode
+            await load_key_type(self)
+            # account mode during warm-up: Multi-Position is remembered and refuses every order (also with hedge
+            # given to create_exchange); reads (balance, positions) work
+            try:
+                hedge = await blofin_position_mode(self)
+                if self._hedge is None:
+                    self._hedge = hedge
+            except ConfigError as e:
+                self._blofin_mode_error = e
+            except BytxError:
+                pass   # not read: is_hedge_mode asks before the order
         if gen != self._close_gen:
             await self._net.close()  # close() already ran: do not leave background tasks
             self._check_not_closed(gen)
@@ -497,7 +516,7 @@ class Exchange:
         market = self._ex.market(s)
         package = {'binance': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'kucoinfutures': 'kucoin',
                    'hyperliquid': 'hyperliquid', 'bitget': 'bitget', 'gate': 'gate',
-                   'mexc': 'mexc'}.get(self._ex.id)
+                   'mexc': 'mexc', 'blofin': 'blofin'}.get(self._ex.id)
         if package is None or not market.get('contract'):
             raise NotSupported(f'leverage tiers for {s} are not published by the exchange', exchange=self.name)
         module = importlib.import_module(f'bytx.exchanges.{package}.tiers')
@@ -929,7 +948,7 @@ class Exchange:
                 raise self._no_margin_mode(s)
             if mode == 'isolated':
                 return self._leverage.get(s)  # ccxt 4.4.65 reads only cross leverage
-        elif self._ex.id == 'okx' and mode is None:
+        elif self._ex.id in ('okx', 'blofin') and mode is None:
             raise self._no_margin_mode(s)
         elif self._ex.id == 'gate':
             # ccxt fetch_leverage for swap is NotSupported; leverage comes from the position (leverage / cross_leverage_limit)
@@ -937,7 +956,7 @@ class Exchange:
             return (await gate_leverage(self, s))[1]
         if not self._ex.has.get('fetchLeverage'):
             return self._leverage.get(s)
-        params = {'marginMode': mode} if self._ex.id in ('okx', 'kucoinfutures') else {}
+        params = {'marginMode': mode} if self._ex.id in ('okx', 'kucoinfutures', 'blofin') else {}
         raw = await self._call(self._ex.fetch_leverage, s, params)
         if self._ex.id == 'bitget':
             # Get Single Account holds both pockets: cross — crossedMarginLeverage, isolated — per side;
@@ -1014,6 +1033,11 @@ class Exchange:
         await self.connect()
         if self._ex.id == 'bitget':
             self._hedge = await self._bitget_hedge_mode(symbol)
+            return self._hedge
+        if self._ex.id == 'blofin':
+            # Get Position Mode is per account; Multi-Position — ConfigError before trading
+            from bytx.exchanges.blofin.leverage import position_mode as blofin_position_mode
+            self._hedge = await blofin_position_mode(self)
             return self._hedge
         if self._ex.id == 'htx' and self.market_type == 'swap':
             from bytx.exchanges.htx.leverage import position_mode
@@ -1153,7 +1177,8 @@ class Exchange:
             if leverage != int(leverage):
                 raise ConfigError(f'leverage on {self.name} must be an integer: {leverage}', exchange=self.name)
             leverage = int(leverage)
-        mode = self._need_margin_mode(s) if self._ex.id in ('okx', 'hyperliquid') else self.margin_mode_of(s)
+        mode = (self._need_margin_mode(s) if self._ex.id in ('okx', 'hyperliquid', 'blofin')
+                else self.margin_mode_of(s))
         if side is not None:
             await self._check_side_leverage(s, side, mode)
         if not allow_open_position and any(p.symbol == s and (side is None or p.side == side)
@@ -1175,6 +1200,11 @@ class Exchange:
                 calls = [{**params, 'posSide': pos_side} for pos_side in ('long', 'short')]
         elif self._ex.id == 'hyperliquid':
             params['marginMode'] = mode
+        elif self._ex.id == 'blofin':
+            # Set Leverage: marginMode is required; positionSide — «only isolated in long/short mode»: per side
+            params['marginMode'] = mode
+            if mode == 'isolated' and await self.is_hedge_mode(s):
+                calls = [{**params, 'positionSide': pos_side} for pos_side in ('long', 'short')]
         elif self._ex.id == 'gate':
             # Position.leverage: "0 means cross margin; positive number means isolated margin", no marginMode
             # ccxt sends leverage N (the position goes isolated); with no mode set, the position's mode
@@ -1209,7 +1239,7 @@ class Exchange:
         if ex_id not in _SIDE_LEVERAGE:
             reason = ('one leverage per symbol for both sides (POST /fapi/v1/leverage has no side)'
                       if ex_id == 'binance' else 'per-side leverage is not supported by the SDK')
-        elif ex_id == 'okx' and mode != 'isolated':
+        elif ex_id in ('okx', 'blofin') and mode != 'isolated':
             reason = 'in cross the instrument leverage is shared by both sides (posSide — isolated long/short only)'
         elif not await self.is_hedge_mode(s):
             reason = 'the symbol is in one-way mode: the position has a single side'
@@ -1223,6 +1253,8 @@ class Exchange:
         if self._ex.id == 'okx':
             # set-leverage docs: posSide «Only required when margin mode is isolated in long/short mode»
             return {'marginMode': mode, 'lever': str(leverage), 'posSide': side}
+        if self._ex.id == 'blofin':
+            return {'marginMode': mode, 'positionSide': side}
         if self._ex.id == 'bingx':
             # Set Leverage docs: side «In the Hedge mode, LONG for long positions, SHORT for short positions»
             return {'side': side.upper()}
@@ -1258,9 +1290,11 @@ class Exchange:
             await kucoin_margin_mode.switch(self, s, mode)
             self._margin_modes[s] = mode
             return
-        if self._ex.id in _LEVERAGE_IN_ORDER:
+        if self._ex.id in _LEVERAGE_IN_ORDER or self._ex.id == 'blofin':
             self._margin_modes[s] = mode
-            return  # set on every order (MEXC openType, HTX endpoint)
+            # set on every order (MEXC openType, HTX endpoint, BloFin marginMode — an order with a mode different
+            # from the account's is accepted)
+            return
         params: dict = {}
         if self._ex.id in ('okx', 'hyperliquid', 'gate'):
             lev = leverage if leverage is not None else self._leverage.get(s)
@@ -2908,6 +2942,12 @@ class Exchange:
             out_price = ref_price  # HL computes market order slippage from the price
 
         p: dict = {}
+        if self._ex.id == 'blofin':
+            if self._blofin_mode_error is not None:
+                raise self._blofin_mode_error   # Multi-Position on the account
+            if not reduce_only:
+                from bytx.exchanges.blofin.ccxt_fixes import check_open_allowed
+                check_open_allowed(self, m)
         if m.is_contract:
             # OKX (tdMode) and KuCoin (marginMode) send the mode with every order:
             # with no mode set, ConfigError instead of a silent cross
@@ -3826,7 +3866,9 @@ def _element_error(raw: Any) -> Optional[tuple[Optional[str], str]]:
 # Max orders per batch request (exchange docs): Binance USDⓈ-M Place Multiple Orders:
 # "Max 5 orders"; OKX batch-orders: up to 20. Bybit (linear up to 20 per v5 docs) and BingX: with a margin,
 # 10 and 5: a smaller chunk is always allowed. Not in the table: the whole batch at once.
-_BATCH_MAX: dict[str, int] = {'binance': 5, 'binanceusdm': 5, 'okx': 20, 'bybit': 10, 'bingx': 5}
+_BATCH_MAX: dict[str, int] = {'binance': 5, 'binanceusdm': 5, 'okx': 20, 'bybit': 10, 'bingx': 5, 'blofin': 20}
+# A batch holds one symbol only (BloFin Place Multiple Orders: 152007 «same instId and marginMode»); otherwise one by one
+_BATCH_ONE_SYMBOL = frozenset({'blofin'})
 
 _NO_BATCH: dict[str, Callable[[dict], bool]] = {
     'binance': lambda m: bool(m.get('spot')),
@@ -3838,6 +3880,8 @@ _NO_BATCH: dict[str, Callable[[dict], bool]] = {
 def _batch_endpoint(ex: Any, requests: list[dict]) -> bool:
     """Whether a single-request batch (createOrders) is possible for the ``requests`` markets."""
     if not ex.has.get('createOrders'):
+        return False
+    if ex.id in _BATCH_ONE_SYMBOL and len({r['symbol'] for r in requests}) > 1:
         return False
     rule = _NO_BATCH.get(ex.id)
     if rule is None:
@@ -3899,8 +3943,8 @@ def create_exchange(name: str, *, api_key: Optional[str] = None, secret: Optiona
     every client_id the SDK generates itself (entry, close, reduce, batch) starts
     with it, so your orders can be found after a timeout and restart. Invalid raises ConfigError.
     client_id_strict: a client_id that together with the Binance broker prefix
-    ``x-<ID>`` exceeds 36 raises InvalidOrder before sending (by default it is sent without the prefix, i.e.
-    without broker attribution, + WARNING and ``binance_unattributed_counts``). Limit:
+    ``x-<ID>`` exceeds 36 raises InvalidOrder before sending (by default it is deterministically shortened and
+    keeps the prefix; what is sent — :func:`bytx.exchange_client_id`). Limit:
     :func:`bytx.max_client_id_len`. An invalid client_id format always raises InvalidOrder: the SDK
     never replaces the caller's id.
     pre_submit: ``callable(request: dict)`` (may be async), called before

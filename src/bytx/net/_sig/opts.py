@@ -28,6 +28,7 @@ BINGX = 'BINGX_SOURCE_KEY'
 BITGET = 'BITGET_BROKER_ID'     # X-CHANNEL-API-CODE header (Bitget API Broker, channel api code)
 GATE = 'GATE_CHANNEL_ID'        # X-Gate-Channel-Id header (Gate broker channel id)
 MEXC = 'MEXC_BROKER_ID'         # source header (MEXC Broker FAQ: "header 'source: Broker_ID'")
+BLOFIN = 'BLOFIN_BROKER_CODE'   # brokerId field in the body of every order (BloFin Broker API, B#get-rebate-guide)
 HL_ADDRESS = 'HL_BUILDER_ADDRESS'
 HL_TESTNET_ADDRESS = 'HL_BUILDER_TESTNET_ADDRESS'
 HL_FEE = 'HL_BUILDER_FEE_TENTHS_BP'
@@ -40,7 +41,7 @@ KUCOIN_AVAILABLE = 'KUCOIN_BROKER_AVAILABLE'
 _TRUTHY = frozenset({'1', 'true', 'yes', 'on'})
 
 KEYS = frozenset({
-    BINANCE_SPOT, BINANCE_FUTURES, BINANCE_LEGACY, OKX, BYBIT, BINGX, BITGET, GATE, MEXC,
+    BINANCE_SPOT, BINANCE_FUTURES, BINANCE_LEGACY, OKX, BYBIT, BINGX, BITGET, GATE, MEXC, BLOFIN,
     HL_ADDRESS, HL_TESTNET_ADDRESS, HL_FEE, KUCOIN_PARTNER, KUCOIN_KEY, KUCOIN_NAME, KUCOIN_AVAILABLE,
 })
 
@@ -60,6 +61,7 @@ class BrokerConfig:
     bitget: Optional[str] = None
     gate: Optional[str] = None
     mexc: Optional[str] = None
+    blofin: Optional[str] = None
     hl_builder_address: Optional[str] = None
     hl_builder_testnet_address: Optional[str] = None
     hl_builder_fee_tenths_bp: Optional[int] = None
@@ -81,6 +83,7 @@ class BrokerConfig:
             BITGET: self.bitget,
             GATE: self.gate,
             MEXC: self.mexc,
+            BLOFIN: self.blofin,
             HL_ADDRESS: self.hl_builder_address,
             HL_TESTNET_ADDRESS: self.hl_builder_testnet_address,
             HL_FEE: None if self.hl_builder_fee_tenths_bp is None else str(self.hl_builder_fee_tenths_bp),

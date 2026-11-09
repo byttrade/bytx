@@ -3,7 +3,7 @@
 **English** | [Русский](GUIDE.ru.md) · [← README](../README.md)
 
 A typed **async** Python SDK for crypto exchanges: Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget;
-in beta: Gate, MEXC, HTX.
+in beta: Gate, MEXC, HTX, BloFin (USDT-M futures).
 One interface for spot and perpetual futures, WebSocket with smart reconnects,
 a proxy per account, and tooling for scalping.
 
@@ -202,6 +202,7 @@ cap raises `ExchangeError` instead of returning an incomplete list.
   | KuCoin, Hyperliquid | make-before-break: up to 200 stop orders per contract (KuCoin, docs), reduce-only triggers (HL, testnet) | none |
   | Bitget | `modify-tpsl-order` in place: the same orderId and clientOid (demo 2026-11-04). `pos_loss` / `pos_profit` (whole position) — one per side: a second placement replaces the previous one with the previous clientOid, so the same size is always moved in place, a new `client_id` is not applied (warning). `loss_plan` / `profit_plan` with a size — several per side: with a new `client_id` or size — make-before-break (whole position → size: a new `loss_plan`, then removing `pos_loss`) | none |
   | Gate, MEXC, HTX | cancel, then the new one (two TP/SL per position not verified against the docs) | the time of one request |
+  | BloFin | `amend-tpsl` in place: the same tpslId and clientOrderId, a new trigger / price type / size; with a new `client_id` — make-before-break | none |
 
   Make-before-break: the new one is placed first; the new one rejected — the previous one is untouched
   (`old='alive'`, `new='rejected'`), outcome unknown — the same (`new='unknown'`, look it up by `client_ids`); the
@@ -281,13 +282,13 @@ a contract ≠ a coin (`Market.contract_size`): `BTC-USDT-SWAP` is 0.01 BTC, `XB
 - `Market.min_cost`: Bybit `minNotionalValue`, Binance
   `MIN_NOTIONAL`, Hyperliquid $10, otherwise ccxt `limits.cost.min`; `None` means no limit.
 
-| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ |
-| Perpetual futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
-| Demo / testnet | ✓ | ✓ | ✓ | futures | ✓ | — ² | ✓ ³ | ✓ ⁴ | — ⁷ | — ⁷ |
-| Orders over WS | ¹ | ¹ | ✓ | — | ¹ | — | — | ✓ | — | — |
-| Hedge mode | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — ⁵ | ✓ | ✓ |
+| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ | — ⁹ |
+| Perpetual futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
+| Demo / testnet | ✓ | ✓ | ✓ | futures | ✓ | — ² | ✓ ³ | ✓ ⁴ | — ⁷ | — ⁷ | ✓ |
+| Orders over WS | ¹ | ¹ | ✓ | — | ¹ | — | — | ✓ | — | — | — |
+| Hedge mode | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — ⁵ | ✓ | ✓ | ✓ ⁹ |
 
 ¹ `ws_*` methods pick the transport automatically (WS or REST) — the call is the same either way.
 ² KuCoin shut down its sandbox (hosts don't respond) — no demo.
@@ -298,6 +299,8 @@ a contract ≠ a coin (`Market.contract_size`): `BTC-USDT-SWAP` is 0.01 BTC, `XB
 ⁶ MEXC spot: WS streams are NotSupported (the exchange sends protobuf, ccxt 4.4.65 uses the old JSON channels); REST — ✓.
 ⁷ MEXC has no testnet in its docs; HTX lists "Testnet (Stopped)": `demo=True` → `NotSupported`, test on paper.
 ⁸ HTX docs have no broker tag mechanism: ccxt's undocumented `channel_code` is removed, and there is no own ID.
+⁹ BloFin: spot is not supported yet; Multi-Position mode is not supported — `ConfigError` before trading
+(see «BloFin (beta)» below).
 
 `demo=True` is the exchange's own testnet/demo (Bybit — demo trading, others — the exchange sandbox),
 **except Binance** — see below. It is not a simulator; the in-memory
@@ -960,6 +963,34 @@ to 2026-03-31 (futures API Update log). "Trading unavailable" rejections (6001, 
 On MEXC `check_key()` detects trading permission with a probe — cancelling a known non-existent order
 (2040 — permitted, 704 — not); MEXC doesn't return withdrawal permission or the IP list.
 
+## BloFin (beta)
+
+USDT-M perpetual futures: `create_exchange('blofin', api_key=…, secret=…, password=…)`; `demo=True` — the BloFin demo
+host. Rules follow the official docs, ccxt 4.4.65 discrepancies are fixed in `exchanges/blofin/ccxt_fixes.py`, exchange
+code lives in `exchanges/blofin/`. Spot is not supported yet (`market='spot'` → `ConfigError`).
+
+```python
+ex = create_exchange('blofin', api_key=…, secret=…, password=…, margin_mode='cross')  # mode sent with every order
+```
+
+- The margin mode goes with every order (`margin_mode` is required); the position mode (one-way / hedge) is read from
+  the account. Multi-Position (every entry is a separate position with `positionId`) is not supported: `ConfigError`
+  before trading — turn it off in the BloFin settings.
+- Size is in contracts (`contractValue`, step `lotSize`, minimum `minSize`) and is checked before sending: the exchange
+  answers code 152002 both for a bad size and for leverage above the instrument's `maxLeverage`.
+- Orders: post_only / IOC / FOK via `orderType`, amend in place (`amend-order`), order by id or client_id
+  (`order-detail`), batches of up to 20 orders of one symbol. TP/SL: TP and SL in one `order-tpsl` request with an
+  explicit price type, moved in place (`amend-tpsl`); list, detail and history.
+- WebSocket: order book with a `prevSeqId` check (a gap — resubscribe), TP/SL over the `orders-algo` channel, own
+  trades from `fills-history` when an order fill grows.
+- Also: leverage tiers (`position-tiers`), closed positions, funding and PnL for the portfolio, key check
+  (`query-apikey`), server time from the `Date` header.
+
+Fixed relative to ccxt 4.4.65: market `settle` from `settleCurrency` (SDK markets are USDT-M only), post_only / IOC /
+FOK were lost, a unique `ACCESS-NONCE` (ccxt reused the timestamp — parallel requests were rejected), errors in a
+`data` object with `code` 0, codes 150004 / 103003 (funds), 102068 / 102067 / 1000 (no such order), 429 (rate limit),
+leverage limited to the instrument's `maxLeverage`, `batch-leverage-info` instead of the deprecated `leverage-info`.
+
 ## Proxies and multiple accounts
 
 ```python
@@ -1050,7 +1081,7 @@ trades = await ex.history.trades('BTC/USDT:USDT', since=t1 - 3_600_000)   # Bina
 - **pandas / polars** — extras: `pip install 'bytx[pandas]'`, `[polars]`, `[parquet]`, `[data]`
   (pandas + pyarrow). The SDK core works without them.
 - **`bytx.testing`** — emulators for testing your strategies, no network or keys:
-  `fake_exchange('bybit', price=50_000)` returns a regular `Exchange` for any of the 10 exchanges on market snapshots from
+  `fake_exchange('bybit', price=50_000)` returns a regular `Exchange` for any of the 11 exchanges on market snapshots from
   the docs (step, minimums and contractSize as on the exchange, the SDK's TP/SL path) plus a `FakeVenue` emulator.
   `paper_exchange('okx', bids=..., asks=...)` returns a paper account on a virtual clock; set the market with
   `set_book` / `add_trade`, advance time with `drive`. The pytest plugin is enabled with
@@ -1160,7 +1191,7 @@ instrument(ex)                             # OpenTelemetry spans
 - Don't serialize `Exchange` calls with your own reentrant lock: `place_orders`, `cancel_all` and
   `close_all` use `asyncio.gather` internally, child tasks don't own the lock — deadlock.
 - `ex.name` is the stable SDK name: binance, bybit, okx, bingx, hyperliquid, kucoin, bitget, gate,
-  mexc, htx.
+  mexc, htx, blofin.
 - `ex.market(symbol)` exposes `settle` and `raw` (the ccxt market dict); `ex.candles(...)` and
   `ex.leverage_tiers(symbol)` work without keys. `ex.close()` is idempotent and stops
   WS streams and background time sync. Don't call `ex.ccxt.close()` directly: background tasks would be left
@@ -1192,6 +1223,7 @@ Without your own id the SDK generates one (with the `client_id_prefix` tag, if s
   are always `t-…` (`generate_client_id`, new-generation client_id, `owns` ignores `t-`); an id without the
   prefix — `InvalidOrder`. Bitget: `clientOid` up to 50 characters (codes 40304/40305). MEXC: `externalOid` up to 32
   (code 2030). HTX swap: `client_order_id` is an integer 1…9223372036854775807 (code 1065), spot — up to 64 characters.
+  BloFin: `clientOrderId` — `[A-Za-z0-9_]{1,32}` (`_` is accepted — demo 2026-11-09).
 - `create_exchange(..., pre_submit=hook)` — `hook(request)` (may be async) runs before each placement
   request with the final `client_id`: persist the intent before sending. An exception in the hook cancels the request.
 

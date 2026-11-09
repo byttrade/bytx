@@ -39,7 +39,8 @@ from bytx.journal.client_id import BOT_TAG_RE, parse_client_id
 _PACKAGES = {'binance': 'binance', 'binanceusdm': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx',
              'kucoin': 'kucoin', 'kucoinfutures': 'kucoin', 'kucoin futures': 'kucoin',
              'hyperliquid': 'hyperliquid', 'bitget': 'bitget', 'gate': 'gate', 'gate.io': 'gate',
-             'mexc': 'mexc', 'mexc global': 'mexc', 'htx': 'htx'}
+             'mexc': 'mexc', 'mexc global': 'mexc', 'htx': 'htx',
+             'blofin': 'blofin'}
 _OWN_ISH = frozenset({'own', 'bot_legacy'})
 
 

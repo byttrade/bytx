@@ -12,7 +12,7 @@ bypass them, so WS is used only where attribution is preserved:
 - bybit — WS has no ``Referer`` header: own BYBIT_BROKER_ID set → REST;
 - binance — the own-ID cid prefix is added by the REST ``request`` wrapper: when active → REST;
 - hyperliquid — builder fee is added by the REST ``create_orders`` wrapper: when set → REST;
-- bingx, kucoin, bitget — ccxt has no WS orders → REST;
+- bingx, kucoin, bitget, blofin — ccxt has no WS orders → REST;
 - gate — WS order ``req_header`` with X-Gate-Channel-Id (WS order_place doc example): the ``watch`` wrapper
   sets our GATE_CHANNEL_ID instead of 'ccxt' (or removes it) — attribution preserved, WS.
 """
@@ -35,9 +35,10 @@ def orders(hub: Any) -> FeedSpec:
     _require(ex, 'watchOrders', hub.name)
     exchange = hub.exchange
 
-    if hub.name == 'okx':
+    if hub.name in ('okx', 'blofin'):
         # OKX: conditional orders (TP/SL) — a separate orders-algo channel on the business connection,
         # ccxt has its own messageHash and cache for it (demo 2026-10-29: 0 TP/SL events in watch_orders)
+        # BloFin: TP/SL — orders-algo channel (F#ws-algo-orders-channel), subscribed in exchanges/blofin/ccxt_fixes
         watch = _merged_watch(lambda: ex.watch_orders(), lambda: ex.watch_orders(params={'trigger': True}))
     else:
         def watch() -> Any:

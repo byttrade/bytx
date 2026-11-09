@@ -26,6 +26,7 @@ _PACKAGES = {
     'binance': 'binance', 'binanceusdm': 'binance', 'bybit': 'bybit', 'okx': 'okx', 'bingx': 'bingx',
     'kucoinfutures': 'kucoin', 'kucoin': 'kucoin', 'hyperliquid': 'hyperliquid',
     'bitget': 'bitget', 'gate': 'gate', 'mexc': 'mexc', 'htx': 'htx',
+    'blofin': 'blofin',
 }
 
 # snapping tolerance (measured: float error ≤ 3e-16 relative)

@@ -36,6 +36,7 @@ import json
 import math
 import re
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -982,6 +983,53 @@ async def _set_htx(ctx: _Ctx, take_profit: Optional[float],
     return result
 
 
+# ─── BloFin: order-tpsl (TP and/or SL in one request, size -1 — the whole position) ──
+
+def _blofin_request(ex: 'Exchange', path: str, method: str, params: Any) -> Any:
+    return ex._call(ex._ex.request, path, 'private', method, params, safe=method == 'GET')
+
+
+async def _set_blofin(ctx: _Ctx, take_profit: Optional[float],
+                      stop_loss: Optional[float]) -> list[TpSlOrder]:
+    """POST /api/v1/trade/order-tpsl (F#place-tpsl-order): TP and/or SL in one request (ccxt sends only one leg,
+    ``elif``), ``size`` -1 — the whole position, ``positionSide`` net / long / short, ``tp/slTriggerPriceType`` last |
+    mark | index (default last — set explicitly), ``tp/slOrderPrice`` -1 — market execution, ``reduceOnly`` — net only
+    («Not supported under Hedge Mode»). Response ``data`` — an object ``{tpslId, clientOrderId, code}``. TP+SL without
+    the caller's own client_ids — one request (kind 'tp_sl'); with them — one leg per request (each has its own id)."""
+    from bytx.exchanges.blofin.tp_sl import TRIGGER_TYPES
+    both = take_profit is not None and stop_loss is not None
+    if both and not set(ctx.explicit) - {'tp_sl'}:
+        legs = [(take_profit, stop_loss)]
+    else:
+        legs = [leg for leg in ((None, stop_loss), (take_profit, None)) if leg != (None, None)]
+    by = TRIGGER_TYPES[ctx.trigger_by]
+    result = ctx.placed
+    for tp, sl in legs:
+        kind = 'tp_sl' if tp is not None and sl is not None else 'take_profit' if tp is not None else 'stop_loss'
+        cid = ctx.client_id(kind)
+        check_client_id(ctx.c, cid, ctx.ex.market_type)
+        req: dict = {'instId': ctx.market.id, 'marginMode': ctx.margin_mode,
+                     'positionSide': ctx.position_side if ctx.hedge else 'net', 'side': ctx.close_side,
+                     'size': ctx.amount() if ctx.partial else '-1', 'clientOrderId': cid}
+        if not ctx.hedge:
+            req['reduceOnly'] = 'true'
+        if tp is not None:
+            req.update(tpTriggerPrice=ctx.price(tp), tpOrderPrice='-1', tpTriggerPriceType=by)
+        if sl is not None:
+            req.update(slTriggerPrice=ctx.price(sl), slOrderPrice='-1', slTriggerPriceType=by)
+        await ctx.pre_submit(kind, cid, tp if kind == 'take_profit' else sl, req)
+        resp = await ctx.ex._call(ctx.c.request, 'trade/order-tpsl', 'private', 'POST', req, safe=False)
+        data = resp.get('data') if isinstance(resp, dict) else None
+        data = data if isinstance(data, dict) else {}
+        tp_f = float(req['tpTriggerPrice']) if tp is not None else None
+        sl_f = float(req['slTriggerPrice']) if sl is not None else None
+        order = _minimal(ctx, kind, tp_f if kind == 'take_profit' else sl_f if kind == 'stop_loss' else None,
+                         id=str(data.get('tpslId') or ''), client_id=data.get('clientOrderId') or cid,
+                         take_profit=tp_f, stop_loss=sl_f, raw={**req, **data})
+        result.append(order)
+    return result
+
+
 _SETTERS = {
     'binance': _set_binance,
     'bybit': _set_bybit,
@@ -993,6 +1041,7 @@ _SETTERS = {
     'gate': _set_gate,
     'mexc': _set_mexc,
     'htx': _set_htx,
+    'blofin': _set_blofin,
 }
 
 
@@ -1387,7 +1436,64 @@ async def _list_htx(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
     return out
 
 
+def _blofin_tpsl_order(d: dict, s: str, m: Market) -> Optional[TpSlOrder]:
+    """A Get Active TPSL Orders / TPSL Order Detail / History record (F#get-active-tpsl-orders): ``tpslId``,
+    ``tp/slTriggerPrice``, ``positionSide`` (net — side from the closing ``side``), ``size`` (contracts, -1 — the whole
+    position), ``state`` live | effective | canceled | order_failed."""
+    tp = convert._f(d.get('tpTriggerPrice')) or None
+    sl = convert._f(d.get('slTriggerPrice')) or None
+    if tp is None and sl is None:
+        return None
+    kind = 'tp_sl' if tp and sl else 'take_profit' if tp else 'stop_loss'
+    side = str(d.get('side') or '').lower()
+    pos = str(d.get('positionSide') or '').lower()
+    if pos not in ('long', 'short'):
+        pos = 'long' if side == 'sell' else 'short' if side == 'buy' else ''
+    contracts = convert._f(d.get('size'))
+    if contracts is not None and contracts <= 0:
+        contracts = None                       # -1 — the whole position
+    order = TpSlOrder(
+        id=str(d.get('tpslId') or ''), client_id=d.get('clientOrderId') or None, symbol=s,
+        side=_close_side(pos) if pos else (side or None), type='market', status='open', price=None, average=None,
+        size=contracts * m.contract_size if contracts else None, filled=None, remaining=None, reduce_only=True,
+        post_only=None, time_in_force=None, trigger_price=sl if kind == 'stop_loss' else tp, fee=None,
+        fee_currency=None, timestamp=int(convert._f(d.get('createTime')) or 0) or None, raw=d, contracts=contracts,
+        kind=kind, position_side=pos or None, take_profit=tp, stop_loss=sl)
+    _with_state(order, 'blofin', d)
+    order.status = {'triggered': 'closed', 'canceled': 'canceled'}.get(order.state or '', 'open')  # type: ignore[assignment]
+    return order
+
+
+async def _list_blofin(ex: 'Exchange', s: str, m: Market) -> list[TpSlOrder]:
+    # GET /api/v1/trade/orders-tpsl-pending — limit «maximum is 100», after — older than tpslId
+    out: list[TpSlOrder] = []
+    req: dict = {'instId': m.id, 'limit': '100'}
+    for _ in range(50):
+        resp = await _blofin_request(ex, 'trade/orders-tpsl-pending', 'GET', dict(req))
+        rows = [d for d in ((resp or {}).get('data') or []) if isinstance(d, dict)]
+        out += [o for o in (_blofin_tpsl_order(d, s, m) for d in rows) if o is not None]
+        if len(rows) < 100:
+            break
+        req['after'] = str(rows[-1].get('tpslId'))
+    return out
+
+
+async def _find_blofin(ex: 'Exchange', s: str, m: Market, oid: str) -> Optional[TpSlOrder]:
+    """Pending — GET order-tpsl-detail; triggered / canceled — orders-tpsl-history by tpslId."""
+    for path in ('trade/order-tpsl-detail', 'trade/orders-tpsl-history'):
+        try:
+            resp = await _blofin_request(ex, path, 'GET', {'instId': m.id, 'tpslId': oid})
+        except OrderNotFound:
+            continue
+        data = (resp or {}).get('data')
+        for d in (data if isinstance(data, list) else [data]):
+            if isinstance(d, dict) and str(d.get('tpslId')) == oid:
+                return _blofin_tpsl_order(d, s, m)
+    return None
+
+
 _LISTERS = {
+    'blofin': _list_blofin,
     'mexc': _list_mexc,
     'htx': _list_htx,
     'gate': _list_gate,
@@ -1431,6 +1537,9 @@ async def conditional_symbols(ex: 'Exchange', symbol: Optional[str] = None) -> s
             data = resp.get('data') if isinstance(resp, dict) else None
             rows = (data or {}).get('orders') or [] if isinstance(data, dict) else []
             ids |= {d.get('contract_code') for d in rows if isinstance(d, dict)}
+    elif c.id == 'blofin':
+        resp = await _blofin_request(ex, 'trade/orders-tpsl-pending', 'GET', {'limit': '100'})
+        ids = {d.get('instId') for d in ((resp or {}).get('data') or []) if isinstance(d, dict)}
     elif c.id == 'bitget':
         ids = set()
         for product in ('USDT-FUTURES', 'USDC-FUTURES'):
@@ -1527,6 +1636,11 @@ async def tp_sl_order(ex: 'Exchange', symbol: str, order_id: str) -> TpSlOrder:
         found = await _find_htx(ex, s, m, oid)
         if found is None:
             raise OrderNotFound(f'TP/SL {oid} ({s}) not found among open orders or in TP/SL history', exchange=ex.name)
+    elif ex._ex.id == 'blofin':
+        found = await _find_blofin(ex, s, m, oid)
+        if found is None:
+            raise OrderNotFound(f'TP/SL {oid} ({s}) not found among pending orders or in TP/SL history',
+                                exchange=ex.name)
     elif ex._ex.id == 'bitget':
         # position TP/SL (place-tpsl-order) are plan orders: a regular order detail does not know them (40109);
         # a fired / removed one is no longer pending — Get History Trigger Order by orderId (demo 2026-11-04: without
@@ -1714,6 +1828,9 @@ async def cancel_tp_sl_each(ex: 'Exchange', s: str, orders: list[TpSlOrder]) -> 
         def cancel(o: TpSlOrder):  # DELETE /futures/{settle}/price_orders/{order_id}
             return ex._call(c.privateFuturesDeleteSettlePriceOrdersOrderId,
                             {'settle': str((m.raw or {}).get('settleId') or 'usdt').lower(), 'order_id': o.id})
+    elif c.id == 'blofin':
+        def cancel(o: TpSlOrder):  # POST trade/cancel-tpsl: an array; rejection — data[i].code (102068 — already gone)
+            return _blofin_request(ex, 'trade/cancel-tpsl', 'POST', [{'instId': m.id, 'tpslId': o.id}])
     elif c.id == 'bitget':
         def cancel(o: TpSlOrder):  # cancel-plan-order: orderIdList «aligned with symbol/productType/planType»
             return _bitget_cancel_plan(ex, s, m, o)
@@ -1782,7 +1899,7 @@ class TpSlModifyResult:
 
 # set_tp_sl without a size places a «whole position» TP/SL (the mode is kept on a move): Bitget pos_loss / pos_profit,
 # Gate close-<side>-position (size 0), MEXC volType 2, Bybit tpslMode Full; Binance closePosition — its own path
-_WHOLE_POSITION_TP_SL = frozenset({'bitget', 'gate', 'mexc', 'bybit'})
+_WHOLE_POSITION_TP_SL = frozenset({'bitget', 'gate', 'mexc', 'bybit', 'blofin'})
 
 IN_PLACE = 'in_place'
 MAKE_BEFORE_BREAK = 'make_before_break'
@@ -1846,6 +1963,9 @@ def modify_strategy(ex: 'Exchange', old: TpSlOrder, *, size: Optional[float] = N
             keys = _OKX_TRIGGER_TYPE_KEYS.get(old.kind, ())
             if trigger_by is None or all(str(info.get(k) or 'last') == trigger_by for k in keys):
                 return IN_PLACE
+        if cid == 'blofin' and same_cid:
+            # amend-tpsl: trigger, price type, size of the same tpslId; clientOrderId does not change
+            return IN_PLACE
         if cid == 'bitget':
             from bytx.exchanges.bitget.tp_sl import WHOLE_POSITION_PLANS
             whole = str(info.get('planType') or '') in WHOLE_POSITION_PLANS
@@ -1898,6 +2018,8 @@ async def modify_tp_sl(ex: 'Exchange', symbol: str, order_id: str, *, take_profi
             return await _modify_bybit_full(ex, s, old, tp, sl, trigger_by)
         if ex._ex.id == 'okx':
             return await _modify_okx_amend(ex, s, m, old, tp, sl, contracts)
+        if ex._ex.id == 'blofin':
+            return await _modify_blofin(ex, s, m, old, tp, sl, contracts, trigger_by)
         if client_id is not None and client_id != old.client_id:
             logger.warning(f'{ex.name}: TP/SL {old.id} ({s}) for the whole position is moved in place — the new client_id '
                            f'{client_id} is not applied (the order keeps {old.client_id}): the exchange holds no second '
@@ -2126,6 +2248,35 @@ async def _modify_okx_amend(ex: 'Exchange', s: str, m: Market, old: TpSlOrder, t
             return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=e, strategy=IN_PLACE)
         return await _settle_in_place(ex, s, old, tp, sl, e)
     return await _in_place_result(ex, s, old, str(item.get('algoId') or old.id), tp, sl)
+
+
+async def _modify_blofin(ex: 'Exchange', s: str, m: Market, old: TpSlOrder, tp: Optional[float],
+                         sl: Optional[float], contracts: Optional[float],
+                         trigger_by: Optional[TriggerBy]) -> TpSlModifyResult:
+    """BloFin: POST /api/v1/trade/amend-tpsl (F#amend-tp%2Fsl-order) — ``newTp/SlTriggerPrice`` (and price type),
+    ``newSize`` of the same ``tpslId``; ``requestId`` — idempotency key. Rejection — ``data.code`` with ``code`` 0."""
+    from bytx.exchanges.blofin.tp_sl import TRIGGER_TYPES
+    c = ex._ex
+    req: dict = {'instId': m.id, 'tpslId': old.id, 'requestId': uuid.uuid4().hex}
+    if contracts is not None:
+        req['newSize'] = c.amount_to_precision(s, contracts)
+    if tp is not None and old.kind in ('take_profit', 'tp_sl'):
+        req['newTpTriggerPrice'] = c.price_to_precision(s, tp)
+        if trigger_by is not None:
+            req['newTpTriggerPriceType'] = TRIGGER_TYPES[trigger_by]
+    if sl is not None and old.kind in ('stop_loss', 'tp_sl'):
+        req['newSlTriggerPrice'] = c.price_to_precision(s, sl)
+        if trigger_by is not None:
+            req['newSlTriggerPriceType'] = TRIGGER_TYPES[trigger_by]
+    try:
+        resp = await _blofin_request(ex, 'trade/amend-tpsl', 'POST', req)
+    except BytxError as e:
+        if _verdict(ex, e) == 'rejected':
+            return TpSlModifyResult(old='alive', new=None, previous=old, atomic=True, error=e, strategy=IN_PLACE)
+        return await _settle_in_place(ex, s, old, tp, sl, e)
+    data = resp.get('data') if isinstance(resp, dict) else None
+    new_id = str((data or {}).get('tpslId') or old.id) if isinstance(data, dict) else old.id
+    return await _in_place_result(ex, s, old, new_id, tp, sl)
 
 
 async def _modify_bitget(ex: 'Exchange', s: str, m: Market, old: TpSlOrder, tp: Optional[float],

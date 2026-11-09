@@ -3,7 +3,7 @@
 [English](../README.md) | [Русский](README.ru.md) | **中文** | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
 
 面向加密货币交易所的强类型 **async** Python SDK：支持 Binance、Bybit、OKX、BingX、Hyperliquid、KuCoin、Bitget；
-Gate、MEXC、HTX 处于 beta 阶段。现货和永续合约使用同一套接口，WebSocket 具备智能重连，
+Gate、MEXC、HTX、BloFin（USDT-M 合约）处于 beta 阶段。现货和永续合约使用同一套接口，WebSocket 具备智能重连，
 每个账户可单独配置代理，并提供面向剥头皮（scalping）交易的工具。
 
 > 完整文档：[docs/GUIDE.md](GUIDE.md)（英文）
@@ -123,12 +123,12 @@ except errors.OrderStatusUnknown as e:
 
 ## 支持的交易所
 
-| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| 现货 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 永续合约 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
-| 模拟盘 / testnet | ✓ | ✓ | ✓ | 合约 | ✓ | — | ✓ | ✓ | — | — |
-| 对冲模式 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
+| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| 现货 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| 永续合约 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
+| 模拟盘 / testnet | ✓ | ✓ | ✓ | 合约 | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| 对冲模式 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ | ✓ |
 
 各交易所的细节和限制（WS 下单、模拟环境的特殊行为等）见 [docs/GUIDE.md](GUIDE.md)。
 

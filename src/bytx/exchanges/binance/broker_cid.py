@@ -23,9 +23,10 @@ ccxt methods, the implicit API and direct ``exchange.request(...)`` calls all go
   ``clientAlgoId``): first with the prefix; if the exchange doesn't know the order (OrderNotFound,
   -2011/-2013, empty response) — with the bare cid (orders placed before the ID was enabled), then with
   legacy prefixes. The extra request happens only after «not found».
-- **Length ≤ 36.** If ``len(prefix) + len(cid) > 36``, the cid is sent WITHOUT the prefix
-  (on reads too — the rule is deterministic): the exchange does not reject the order,
-  only attribution is lost — WARNING + counter ``binance_unattributed_counts()``.
+- **Length ≤ 36** (New Order: ``^[\.A-Z\:/a-z0-9_-]{1,36}$``). If ``len(prefix) + len(cid) > 36``, the cid is
+  deterministically shortened to ``36 − len(prefix)`` (:func:`shorten_binance_cid`: the cid head + 12 hex of the
+  SHA-256 of the whole cid) and sent WITH the prefix (reads and cancels use the same form); the exchange response
+  carries the shortened cid (:func:`bytx.exchange_client_id` gives exactly what is sent).
 - **Never prefixed twice:** a cid that already starts with a known prefix
   (case-insensitive) is sent as is.
 
@@ -55,6 +56,7 @@ Env:
     BINANCE_BROKER_ID_LEGACY   — legacy prefixes, comma-separated (strip/search only);
                                  keep while live orders exist under them (see above)
 """
+import hashlib
 import inspect
 import json
 import os
@@ -138,7 +140,7 @@ def binance_max_logical_cid_len(market: str = 'futures') -> int:
     """Max logical cid length at which it is sent WITH the prefix (36 − P).
 
     market: 'futures' (swap/future) or 'spot'. Without our own ID — 36 (no prefix).
-    Caller contract: a longer cid is sent without the prefix (no attribution).
+    Caller contract: a longer cid is shortened, the prefix is kept (:func:`shorten_binance_cid`).
     """
     market = 'spot' if market in ('spot', 'margin') else 'futures'
     prefix = binance_cid_config_from_env().prefix_for(market)
@@ -165,15 +167,27 @@ def _has_known_prefix(cid: str, cfg: BinanceCidConfig) -> bool:
     return any(low.startswith(p.lower()) for p in cfg.known)
 
 
+#: hex chars of SHA-256 in a shortened cid: different cids with a common head do not collide
+_SHORT_HASH = 12
+
+
+def shorten_binance_cid(cid: str, limit: int) -> str:
+    """cid of length ≤ ``limit``: as is if it fits; otherwise the cid head + 12 hex of the SHA-256 of the whole cid
+    (deterministic — the same cid gives the same form on retry, lookup and cancel)."""
+    if len(cid) <= limit:
+        return cid
+    digest = hashlib.sha256(cid.encode()).hexdigest()
+    return (cid[:max(0, limit - _SHORT_HASH)] + digest)[:limit]
+
+
 def physical_binance_cid(cid, prefix: Optional[str], cfg: BinanceCidConfig):
-    """cid to send: prefix + cid, if a prefix is set, not already present and length ≤ 36."""
+    """cid to send: prefix + cid if a prefix is set and not already present; a cid that does not fit into 36 is
+    shortened (:func:`shorten_binance_cid`), the prefix is kept."""
     if not prefix or not isinstance(cid, str) or not cid:
         return cid
     if _has_known_prefix(cid, cfg):
         return cid
-    if len(prefix) + len(cid) > BINANCE_CID_MAX_LEN:
-        return cid
-    return prefix + cid
+    return prefix + shorten_binance_cid(cid, BINANCE_CID_MAX_LEN - len(prefix))
 
 
 def binance_unattributed_counts() -> dict:
@@ -629,7 +643,7 @@ __all__ = [
     'BINANCE_CID_MAX_LEN', 'ENV_BINANCE_LEGACY', 'BinanceCidConfig',
     'binance_cid_config_from_env', 'binance_max_logical_cid_len', 'binance_unattributed_counts',
     'strip_binance_prefix', 'physical_binance_cid', 'strip_binance_response', 'strip_binance_ws_payload',
-    'install_binance_cid_prefix', 'exchange_binance_cid_config',
+    'install_binance_cid_prefix', 'exchange_binance_cid_config', 'shorten_binance_cid',
     'find_orphan_prefixed_cid', 'find_orphan_prefixed_cids', 'scan_prefixed_orders',
     'binance_orphan_counts', 'ORPHAN_WARN_INTERVAL_SEC',
 ]

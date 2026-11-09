@@ -93,7 +93,7 @@ files = [
     "src/bytx/outcome.py", "src/bytx/net/deadline.py", "src/bytx/sizing.py",
     "src/bytx/journal", "src/bytx/exchanges/hyperliquid/cloid.py",
     "src/bytx/exchanges/bitget", "src/bytx/exchanges/gate", "src/bytx/exchanges/mexc",
-    "src/bytx/exchanges/htx", "src/bytx/paper",
+    "src/bytx/exchanges/htx", "src/bytx/exchanges/blofin", "src/bytx/paper",
     "src/bytx/algos", "src/bytx/risk_sizing.py", "src/bytx/recovery",
     "src/bytx/strategy", "src/bytx/exchanges/__init__.py", "src/bytx/exchanges/binance/matching.py",
     "src/bytx/exchanges/bybit/matching.py", "src/bytx/exchanges/okx/matching.py",

@@ -152,6 +152,13 @@ ACCOUNT_ENDPOINTS: dict[str, list[tuple[re.Pattern, _Rule, str]]] = {
         (re.compile(r'^POST contract/private:order/submit$'), (None, None), ''),
         (re.compile(r'^\w+ contract/private:'), (None, None), PER_ENDPOINT),
     ],
+    # BloFin (ccxt unit 100 ms), F#rest-api-limits: trading — «30 requests per 10 seconds per UserId» (1 per 333 ms =
+    # 10/3 units, orders / cancels / amend / TP/SL share one limit), IP — 500 / min (≈ 8.3/s → 1.2 units) and
+    # 1500 / 5 min; ccxt 4.4.65 charges 1 unit (10/s) per IP.
+    'blofin': [
+        (re.compile(r'^POST private:trade/'), (10 / 3, 1.2), ''),
+        (re.compile(r'^\w+ (private|public):'), (None, 1.2), PER_ENDPOINT),
+    ],
     # HTX USDT-swap (unit 100 ms): «private interface rate limit of API key is at most 144 times every 3 seconds for
     # each UID (Trade Interface: at most 72 times every 3 seconds. Read Interface: at most 72 times every 3 seconds)» —
     # 24/s = 5/12 unit; private endpoints have no IP limit (240/3 s and 800/s are public). Reads — information
@@ -508,6 +515,7 @@ BYBIT_IP_BAN_PAUSE = 600.0
 MIN_BAN_PAUSE = 1.0
 #: BingX 100410 without the unblock moment in the text, s
 BINGX_BAN_DEFAULT = 60.0
+BLOFIN_IP_BAN_PAUSE = 300.0
 _UNBLOCK_RE = re.compile(r'unblocked after (\d{10,})')
 
 
@@ -524,6 +532,9 @@ def ban_signal(exchange_id: str, code: Any, body: Any, now_ms: Optional[float] =
         if str(code) == '403' and 'access too frequent' in text.lower():
             return 'ip', BYBIT_IP_BAN_PAUSE
         return None
+    if exchange_id == 'blofin':
+        # F#network-firewall-restrictions: HTTP 403 — firewall, IP ban for ~5 min
+        return ('ip', BLOFIN_IP_BAN_PAUSE) if str(code) == '403' else None
     if exchange_id == 'bingx' and '100410' in text:
         try:
             data = json.loads(text)

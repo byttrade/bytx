@@ -48,6 +48,8 @@ CLIENT_ID_FORMATS = {
     # HTX spot: client-order-id: "The allowed characters are letters (case sensitive), digit, underscore (_) and
     # hyphen (-), no more than 64 chars". Contracts use an integer (see MARKET_CLIENT_ID_FORMATS)
     'htx': re.compile(r'^[A-Za-z0-9_-]{1,64}$'),
+    # BloFin: clientOrderId ≤ 32, «case-sensitive alphanumerics»; «_» is accepted (152009 allows it; demo 2026-11-09)
+    'blofin': re.compile(r'^[A-Za-z0-9_]{1,32}$'),
 }
 # Format that differs by market type (key: ccxt id, market type). HTX USDT-M: client_order_id is a long
 # "[1, 9223372036854775807]", error 1065 "The form number of client isn't an integer"
@@ -75,6 +77,7 @@ CLIENT_ID_KEYS = {
     'gate': 'text',
     'mexc': 'clientOrderId',     # ccxt: spot → newClientOrderId, contracts → externalOid
     'htx': 'clientOrderId',      # ccxt: spot → client-order-id, contracts → client_order_id (integer)
+    'blofin': 'clientOrderId',
 }
 
 AUTO_PREFIX = 'bt'
@@ -86,7 +89,8 @@ CLIENT_ID_PREFIX_MAX = 14
 _PREFIX_RE = re.compile(r'^[A-Za-z0-9]{1,%d}$' % CLIENT_ID_PREFIX_MAX)
 # exchange's maximum client_id length (docs; HL: 128-bit hex without '0x')
 _CLIENT_ID_MAX_LEN = {'binance': 36, 'bybit': 36, 'okx': 32, 'kucoinfutures': 40, 'kucoin': 40,
-                      'bingx': 40, 'hyperliquid': 32, 'bitget': 50, 'gate': 30, 'mexc': 32, 'htx': 64}
+                      'bingx': 40, 'hyperliquid': 32, 'bitget': 50, 'gate': 30, 'mexc': 32, 'htx': 64,
+                      'blofin': 32}
 _MARKET_CLIENT_ID_MAX_LEN = {('htx', 'swap'): 19}
 # Gate: mandatory text prefix (not counted in the 28-byte length)
 GATE_TEXT_PREFIX = 't-'
@@ -261,9 +265,9 @@ def max_client_id_len(exchange, market_type: str = 'swap') -> int:
 
 
 def exchange_client_id(exchange, market_type: str, client_id: str) -> str:
-    """The client_id as it goes to the exchange: Binance — with the broker prefix ``x-<ID>`` if it is set and the cid
-    with it fits into 36 (otherwise as is, without attribution); other exchanges do not change the cid (their tag is
-    a header / tag). ``exchange`` — :class:`~bytx.Exchange`, a ccxt instance or a name (then the ID from env)."""
+    """The client_id as it goes to the exchange: Binance — with the broker prefix ``x-<ID>`` if it is set (a cid that
+    does not fit into 36 with it is deterministically shortened, the prefix is kept); other exchanges do not change
+    the cid (their tag is a header / tag). ``exchange`` — :class:`~bytx.Exchange`, a ccxt instance or a name (then the ID from env)."""
     if _ccxt_id(exchange) != 'binance':
         return client_id
     c = _ccxt_of(exchange)
@@ -277,8 +281,8 @@ def exchange_client_id(exchange, market_type: str, client_id: str) -> str:
 def attribution_overflow(exchange, client_id: Optional[str], market_type: str = 'swap') -> bool:
     """True if a client_id with the Binance broker prefix does not fit in 36 chars.
 
-    The transport sends such an id without the prefix: the order is accepted, but without broker
-    attribution (``binance_unattributed_counts`` counter). An id that already starts with
+    The transport shortens such an id (the prefix is kept); with ``client_id_strict`` it raises
+    InvalidOrder before sending. An id that already starts with
     a known prefix is sent as is; that is not an overflow.
     """
     prefix = binance_broker_prefix(exchange, market_type)
@@ -430,6 +434,7 @@ CANCEL_CLIENT_ID_KEYS = {
     'kucoinfutures': 'clientOid',
     'kucoin': 'clientOid',
     'bitget': 'clientOid',
+    'blofin': 'clientOrderId',
 }
 
 
@@ -474,16 +479,22 @@ def position_params(exchange, *, side: str, hedge: bool, reduce_only: bool,
         params['hedged'] = hedge
         if leverage:
             params['leverage'] = int(leverage)
+    elif ex_id == 'blofin':
+        # Place Order: marginMode is required on every order, positionSide — net in one-way, long/short in hedge
+        if margin_mode:
+            params['marginMode'] = margin_mode
+        params['positionSide'] = pos if hedge else 'net'
     elif ex_id == 'kucoinfutures':
         if margin_mode:
             params['marginMode'] = margin_mode.upper()
         if leverage:
             # without leverage ccxt substitutes 1x: KuCoin leverage is set per order
             params['leverage'] = leverage
-    if reduce_only and not (hedge and ex_id in ('binance', 'bingx', 'okx')):
+    if reduce_only and not (hedge and ex_id in ('binance', 'bingx', 'okx', 'blofin')):
         # Binance/BingX reject reduceOnly in hedge mode (-1106): positionSide defines the close.
         # OKX: reduceOnly is "only applicable to … FUTURES/SWAP orders in net mode" (v5 docs),
-        # in long/short mode posSide defines the close (ccxt does not send it either).
+        # in long/short mode posSide defines the close (ccxt does not send it either). BloFin: «reduceOnly — not
+        # supported in hedge mode and will be ignored» (Place Order).
         params['reduceOnly'] = True
     return params
 

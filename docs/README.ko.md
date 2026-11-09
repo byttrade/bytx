@@ -3,7 +3,7 @@
 [English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | **한국어** | [Türkçe](README.tr.md)
 
 암호화폐 거래소를 위한 타입이 지정된 **async** Python SDK입니다. 지원 거래소: Binance, Bybit, OKX, BingX,
-Hyperliquid, KuCoin, Bitget, 베타: Gate, MEXC, HTX. 현물과 무기한 선물을 하나의 인터페이스로 다루고,
+Hyperliquid, KuCoin, Bitget, 베타: Gate, MEXC, HTX, BloFin(USDT-M 선물). 현물과 무기한 선물을 하나의 인터페이스로 다루고,
 스마트 재연결 기능을 갖춘 WebSocket, 계정별 프록시, 스캘핑을 위한 도구를 제공합니다.
 
 > 전체 문서: [docs/GUIDE.md](GUIDE.md) (영어)
@@ -126,13 +126,13 @@ except errors.OrderStatusUnknown as e:
 
 ## 지원 거래소
 
-| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| 현물 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 무기한 선물 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
-| 데모 / 테스트넷 | ✓ | ✓ | ✓ | 선물 | ✓ | — | ✓ | ✓ | — | — |
-| WS 주문 | ✓ | ✓ | ✓ | — | ✓ | — | — | ✓ | — | — |
-| 헤지 모드 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ |
+| | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| 현물 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| 무기한 선물 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
+| 데모 / 테스트넷 | ✓ | ✓ | ✓ | 선물 | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| WS 주문 | ✓ | ✓ | ✓ | — | ✓ | — | — | ✓ | — | — | — |
+| 헤지 모드 | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ | ✓ |
 
 각주와 제한 사항(Binance/Bybit/Hyperliquid의 WS 주문 조건, MEXC 현물 WS 등)은
 [영문 README](GUIDE.md)를 참고하세요.
