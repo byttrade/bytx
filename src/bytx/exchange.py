@@ -2649,7 +2649,7 @@ class Exchange:
         ``{enabled, builder, fee_tenths_bp, max_fee_rate, approved_tenths_bp, approved, checked,
         network, main_address, error}``. ``refresh=False``: from the process cache without requests;
         otherwise info ``maxBuilderFee`` (failure does not raise: ``checked=False``, ``error``). Builder
-        is enabled only explicitly (``HL_BUILDER_ADDRESS`` / ``BrokerConfig``), unless attribution is off (``BrokerConfig.disabled()`` / ``BYTX_BROKER_MODE=off``).
+        is enabled only explicitly (``HL_BUILDER_ADDRESS`` / ``BrokerConfig``).
         Not Hyperliquid: NotSupported.
         """
         from bytx.exchanges.hyperliquid import builder as hl_builder

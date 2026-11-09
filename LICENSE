@@ -1,5 +1,5 @@
 BYTtrade Source-Available License
-Version 1.2
+Version 1.3
 
 Copyright (c) 2026 BYTtrade (https://byttrade.com). All rights reserved.
 
@@ -43,7 +43,8 @@ license to:
 
 (c) use the Software through its public interfaces, including importing it,
     subclassing its classes, passing callbacks and configuring it with the
-    options and environment variables described in its documentation;
+    options and environment variables described in its documentation,
+    subject to section 3(g);
 
 (d) make the copies of the Software reasonably necessary for the uses above,
     such as installations on computers, servers, containers and continuous
@@ -94,10 +95,10 @@ Except as expressly permitted in section 2, you may not:
     the Software, including the LICENSE and NOTICE files;
 
 (g) remove, disable, replace or circumvent Broker Attribution by any means,
-    including modification, monkey-patching, proxying or configuration. You
-    may turn Broker Attribution off for your own use with the opt-out options
-    described in the Software's documentation. Replacing BYTtrade's
-    identifiers with any other identifiers is not permitted; or
+    including modification, monkey-patching, proxying, configuration or
+    environment settings. Use of the Software without Broker Attribution, or
+    with any other identifiers, requires a separate written license from
+    BYTtrade; or
 
 (h) use the names, logos or trademarks of BYTtrade or bytx, except to state
     truthfully that your product uses bytx.

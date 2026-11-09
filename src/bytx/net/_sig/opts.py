@@ -8,10 +8,7 @@ All ``bytx.net._sig`` modules get broker ID values only via
 3. environment variable with the same name as the key;
 4. built-in SDK value.
 
-``BrokerConfig.disabled()`` at any level turns attribution off: the lookup goes no further
-down the chain and neutral values are sent to the exchange. An empty string in a field means "not set
-and stop looking". ``BYTX_BROKER_MODE=off`` in env is the same as ``disabled()``.
-ccxt tags are never set, in any mode.
+ccxt tags are never set. Internal use only; see LICENSE, section 3 (g).
 """
 from __future__ import annotations
 
