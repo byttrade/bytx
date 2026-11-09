@@ -7,7 +7,10 @@ DOCS = 'https://bybit-exchange.github.io/docs/v5/error'
 
 # 10000 «Server Timeout», 10016 «Server error» (WS: «internal server error; Service is
 # restarting») — the gateway didn't hear back from the engine, outcome unknown
-UNKNOWN_OUTCOME = frozenset({'10000', '10016'})
+# Spot (checked 2026-11-08): 170146 «Order creation timeout», 170147 «Order cancellation timeout», 170035 «Submitted
+# to the system for processing!» — ccxt 4.4.65 treats them as a rejection (InvalidOrder / BadRequest), but the order may
+# have been accepted
+UNKNOWN_OUTCOME = frozenset({'10000', '10016', '170146', '170147', '170035'})
 # 5004 «Server Timeout» — seen in exchange responses; it is NOT in the docs table.
 # A false match only yields «outcome unknown» instead of a rejection (the safe side).
 UNKNOWN_OUTCOME_UNDOCUMENTED = frozenset({'5004'})
@@ -26,7 +29,12 @@ INSUFFICIENT_FUNDS: frozenset = frozenset()
 # 10001 «Request parameter error» (on the demo run 2026-10-26 — «position idx not match position
 # mode» on /v5/order/create): request not accepted — explicit rejection. ccxt 4.4.65 gives BadRequest →
 # ExchangeError (place_order), and a batch element gives InvalidOrder (place_orders): one class on both paths
-INVALID_ORDER = frozenset({'10001'})
+# Spot (checked 2026-11-08): 170105 «Parameter '%s' was empty.», 170130 «Data sent for paramter '%s' is not valid.» —
+# ccxt 4.4.65 BadRequest
+INVALID_ORDER = frozenset({'10001', '170105', '170130'})
+# Spot, below the minimum (checked 2026-11-08): 170136 «Order quantity lower than the minimum.», 170140 «Order value
+# exceeded lower limit» — OrderTooSmall (a subclass of InvalidOrder)
+TOO_SMALL = frozenset({'170136', '170140'})
 # Rate limit (error table): 10006 «Too many visits. Exceeded the API Rate Limit.» (UTA; in a batch — the item code in
 # retExtInfo.list: Rate Limit docs — a batch is charged per order, «the part that exceeds the limit will fail»),
 # 10018 «Exceeded the IP Rate Limit.» (UTA, struck through in the docs — same meaning), 30035 «Option: Too fast to

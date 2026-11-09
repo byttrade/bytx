@@ -419,6 +419,14 @@ await ex.sell_all('DOGE/USDT', client_id='s1')            # the whole free base 
   `ExchangeError`. A placement timeout on spot is reconciled through the same lookup, so no second order is sent.
 - KuCoin: an empty `data: null` response is treated as «not found» (the documentation does not describe the
   not-found response).
+- One request per market order: `buy(notional=…)` needs no price, `size` checks the minimum cost with a price cached
+  for 5 s. A response without the fill (Bybit, OKX, KuCoin) is completed from the `ex.stream.orders()` stream if it is
+  subscribed, otherwise with one `order(id)`; if that fails, the order has `partial_info=True`.
+- An explicit rejection by the exchange is `InvalidOrder` at once (below the minimum on Bybit — `OrderTooSmall`), with
+  the ccxt error in `__cause__`; only timeouts and «outcome unknown» codes are reconciled.
+- `cancel_order(..., strict=True)` raises the exchange error (e.g. Binance -2011) if the order is no longer open instead
+  of returning its final status. `exchange_client_id(ex, market, client_id)` returns the cid as it goes to the exchange.
+- Binance: `demo=True` is Demo Mode, `demo='testnet'` is the older testnet.
 
 ## WebSocket
 

@@ -29,6 +29,7 @@ from bytx.errors import (
     InsufficientFunds,
     InvalidOrder,
     NetworkError,
+    OrderTooSmall,
     NotSupported,
     OrderNotFound,
     PermissionDenied,
@@ -97,6 +98,12 @@ def refine(exchange_id: Optional[str], error: BytxError) -> BytxError:
     typed = position_error(exchange_id or '', error, reduce_only=False)
     if typed is not None:
         return typed
+    if type(error) is InsufficientFunds and _codes(error) & getattr(table, 'FUNDS_AMBIGUOUS', frozenset()) \
+            and not any(t in _text(error).lower() for t in table.FUNDS_TEXT):
+        # KuCoin spot 400100: one code for «Parameter Error» and insufficient funds — without a funds marker it is a parameter
+        param = InvalidOrder(error.message, exchange=error.exchange, code=error.code, details=error.details)
+        param.__cause__ = error.__cause__ or error
+        return param
     if type(error) is ExchangeError and _codes(error) & table.INSUFFICIENT_FUNDS:
         funds = InsufficientFunds(error.message, exchange=error.exchange, code=error.code, details=error.details)
         funds.__cause__ = error.__cause__ or error
@@ -122,6 +129,10 @@ def refine(exchange_id: Optional[str], error: BytxError) -> BytxError:
                                             details=error.details)
                 closed.__cause__ = error.__cause__ or error
                 return closed
+    if type(error) in (ExchangeError, InvalidOrder) and codes & getattr(table, 'TOO_SMALL', frozenset()):
+        small = OrderTooSmall(error.message, exchange=error.exchange, code=error.code, details=error.details)
+        small.__cause__ = error.__cause__ or error
+        return small
     if type(error) is ExchangeError and codes & getattr(table, 'INVALID_ORDER', frozenset()):
         invalid = InvalidOrder(error.message, exchange=error.exchange, code=error.code, details=error.details)
         invalid.__cause__ = error.__cause__ or error

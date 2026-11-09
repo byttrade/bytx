@@ -1,5 +1,5 @@
-__version__ = '0.1.6'
-__version_info__ = (0, 1, 6)
+__version__ = '0.1.7'
+__version_info__ = (0, 1, 7)
 
 __title__ = 'bytx'
 __description__ = 'bytx — typed async Python SDK for crypto exchanges by BYTtrade'

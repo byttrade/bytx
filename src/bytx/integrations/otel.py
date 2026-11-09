@@ -162,13 +162,13 @@ class _Instrumentation:
 
     def _cancel(self, original: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(original)
-        async def cancel(s: str, order_id: Optional[str], client_id: Optional[str]) -> Any:
+        async def cancel(s: str, order_id: Optional[str], client_id: Optional[str], **kwargs: Any) -> Any:
             attrs = _clean_attrs({**self.base, 'bytx.symbol': s, 'bytx.order.id': order_id,
                                   'bytx.order.client_id': client_id})
             with self.tracer.start_as_current_span('bytx.order.cancel', attributes=attrs,
                                                    record_exception=False, set_status_on_exception=False) as span:
                 try:
-                    order, ours = await original(s, order_id, client_id)
+                    order, ours = await original(s, order_id, client_id, **kwargs)
                 except BaseException as e:
                     self.fail(span, e)
                     raise

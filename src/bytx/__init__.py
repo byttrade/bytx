@@ -42,7 +42,7 @@ from bytx.exchanges.hyperliquid.builder import (
 )
 from bytx.exchanges.hyperliquid.markets import patch_hyperliquid_markets
 from bytx.utils.text import to_exchange_symbol
-from bytx.order_params import generate_client_id, max_client_id_len, owns
+from bytx.order_params import exchange_client_id, generate_client_id, max_client_id_len, owns
 from bytx.__version__ import (
     __version__,
     __version_info__,
@@ -100,6 +100,7 @@ __all__ = [
     'hl_set_builder_fallback_hook',
     'to_exchange_symbol',
     # client_id
+    'exchange_client_id',
     'generate_client_id',
     'max_client_id_len',
     'owns',

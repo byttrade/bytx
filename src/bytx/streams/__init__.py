@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any, Callable, Optional
 
 from loguru import logger
@@ -49,12 +49,15 @@ from bytx.streams.supervisor import (
     install_activity_hook,
     percentile,
 )
-from bytx.types import OrderBook, Ticker
+from bytx.types import Order, OrderBook, Ticker
 
 KINDS = ('order_book', 'ticker', 'best_bid_ask', 'trades', 'candles',
          'orders', 'fills', 'positions', 'balance')
 _PRIVATE = frozenset(_private.BUILDERS)
 _TICKER_KINDS = frozenset({'ticker', 'best_bid_ask'})
+_FINAL_STATUSES = frozenset({'closed', 'canceled', 'expired', 'rejected'})
+#: how many final orders of the ``orders`` stream to remember by id (completing a market order without REST)
+FINAL_ORDERS_KEEP = 500
 
 
 # Default WS order book depth (levels per side). Converting the whole local ccxt book
@@ -261,6 +264,8 @@ class Streams:
         self._handles: set[Handle] = set()
         self._cache = TopOfBookCache()
         self._orders: dict[str, LatencyStats] = {}
+        self._final_orders: OrderedDict[str, Order] = OrderedDict()
+        self._order_waiters: dict[str, asyncio.Future] = {}
         self._background: set[asyncio.Task] = set()
         self._closed = False
         # stream recording (bytx.paper.Recorder) — tap(spec, items) on every message
@@ -377,6 +382,39 @@ class Streams:
         """Latest ticker / best_bid_ask from WS without waiting (None — as in :meth:`last_book`)."""
         s = self._resolve(symbol)
         return self._cache.tickers.get(s) if self._fresh(tuple(_TICKER_KINDS), s) else None
+
+    async def final_order(self, order_id: str, timeout: float) -> Optional[Order]:
+        """An order in a final status (filled, canceled, expired, rejected) from the ``orders`` stream without REST.
+
+        Already arrived — at once (the WS event may come before the placement response); the ``orders`` stream is
+        subscribed and not reconnecting — wait up to ``timeout`` s (a private stream is 'idle' until its first event
+        but ``ready``: the subscription is confirmed); no stream or nothing arrived — None (the caller reads REST)."""
+        hit = self._final_orders.get(order_id)
+        if hit is not None or not any(f.spec.kind == 'orders' and f.running and f.ready
+                                      and f.stats.state in ('idle', 'connected') for f in self._feeds.values()):
+            return hit
+        fut = self._order_waiters.get(order_id)
+        if fut is None:
+            fut = self._order_waiters[order_id] = asyncio.get_running_loop().create_future()
+        try:
+            return await asyncio.wait_for(asyncio.shield(fut), timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            if not fut.done() and self._order_waiters.get(order_id) is fut:
+                del self._order_waiters[order_id]
+                fut.cancel()
+
+    def _order_seen(self, order: Order) -> None:
+        if not order.id or order.status not in _FINAL_STATUSES:
+            return
+        self._final_orders[order.id] = order
+        self._final_orders.move_to_end(order.id)
+        while len(self._final_orders) > FINAL_ORDERS_KEEP:
+            self._final_orders.popitem(last=False)
+        fut = self._order_waiters.pop(order.id, None)
+        if fut is not None and not fut.done():
+            fut.set_result(order)
 
     def _fresh(self, kinds: tuple[str, ...], symbol: str) -> bool:
         """There is a live ``kinds`` stream for the symbol with data no older than the silence threshold."""
@@ -514,6 +552,9 @@ class Streams:
             self._cache.put_book(items[-1])
         elif kind in _TICKER_KINDS:
             self._cache.put_ticker(items[-1])
+        elif kind == 'orders':
+            for order in items:
+                self._order_seen(order)
 
     def _emit(self, state: str, feed: Feed, **kwargs: Any) -> None:
         if not self._listeners:

@@ -11,7 +11,12 @@ import secrets
 import uuid
 from typing import Optional
 
-from bytx.exchanges.binance.broker_cid import BINANCE_CID_MAX_LEN, exchange_binance_cid_config
+from bytx.exchanges.binance.broker_cid import (
+    BINANCE_CID_MAX_LEN,
+    binance_cid_config_from_env,
+    exchange_binance_cid_config,
+    physical_binance_cid,
+)
 from bytx.net._sig.headers import (
     CCXT_BINANCE_BROKER_IDS,
     NEUTRAL_BINANCE_PREFIX,
@@ -255,6 +260,20 @@ def max_client_id_len(exchange, market_type: str = 'swap') -> int:
     return limit - len(prefix) if prefix else limit
 
 
+def exchange_client_id(exchange, market_type: str, client_id: str) -> str:
+    """The client_id as it goes to the exchange: Binance — with the broker prefix ``x-<ID>`` if it is set and the cid
+    with it fits into 36 (otherwise as is, without attribution); other exchanges do not change the cid (their tag is
+    a header / tag). ``exchange`` — :class:`~bytx.Exchange`, a ccxt instance or a name (then the ID from env)."""
+    if _ccxt_id(exchange) != 'binance':
+        return client_id
+    c = _ccxt_of(exchange)
+    cfg = exchange_binance_cid_config(c) if c is not None else binance_cid_config_from_env()
+    if cfg is None:
+        return client_id
+    return physical_binance_cid(client_id, cfg.prefix_for('spot' if market_type in ('spot', 'margin') else 'futures'),
+                                cfg)
+
+
 def attribution_overflow(exchange, client_id: Optional[str], market_type: str = 'swap') -> bool:
     """True if a client_id with the Binance broker prefix does not fit in 36 chars.
 
@@ -472,4 +491,4 @@ def position_params(exchange, *, side: str, hedge: bool, reduce_only: bool,
 __all__ = ['GATE_TEXT_PREFIX', 'HTX_CLIENT_ID_MAX', 'NUMERIC_PREFIX_MAX', 'MARKET_CLIENT_ID_FORMATS', 'client_id_format',
            'numeric_client_id', 'generate_client_id', 'check_client_id_prefix', 'prefixed_client_id', 'CLIENT_ID_PREFIX_MAX', 'client_id_params', 'position_params', 'okx_tag_params',
            'CLIENT_ID_FORMATS', 'CLIENT_ID_KEYS', 'max_client_id_len', 'check_client_id', 'attribution_overflow',
-           'binance_broker_prefix', 'owns']
+           'binance_broker_prefix', 'exchange_client_id', 'owns']

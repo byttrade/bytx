@@ -593,10 +593,14 @@ class PaperExchange(Exchange):
             await self.journal._on_replaced(self, order_id, order)
         return order
 
-    async def _cancel_one(self, s: str, order_id: Optional[str], client_id: Optional[str]) -> tuple[Order, bool]:
+    async def _cancel_one(self, s: str, order_id: Optional[str], client_id: Optional[str], *,
+                          strict: bool = False) -> tuple[Order, bool]:
         if not order_id and not client_id:
             raise ConfigError(f'order_id or client_id is required ({s})', exchange=self.name, details={'symbol': s})
         order, ours = self.engine.cancel(s, order_id, client_id=client_id)
+        if strict and not ours:
+            raise OrderNotFound(f'order {order_id or client_id} is no longer open ({order.status})', exchange=self.name,
+                                details={'symbol': s, 'order_id': order_id, 'client_id': client_id})
         self._sync_dispatch(order.id)
         return order, ours
 

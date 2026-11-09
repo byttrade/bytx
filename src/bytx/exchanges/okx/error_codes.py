@@ -28,7 +28,9 @@ INSUFFICIENT_FUNDS: frozenset = frozenset()
 # price», 51053 «The stop loss trigger price must be higher than the best bid price» — an SL attached to the
 # entry (attachAlgoOrds) on the wrong side: the entry is rejected entirely (demo 2026-11-04,
 # tests/ground_truth/okx/demo_attached_sl_errors.json). ccxt 4.4.65 doesn't know them (bare ExchangeError).
-INVALID_ORDER = frozenset({'51170', '51205', '51051', '51052', '51053'})
+# Parameters (Error Code, checked 2026-11-08): 51000 «Parameter {param} error», 50014 «Parameter {param0} can not be
+# empty», 50016 «Parameter {param0} does not match parameter {param1}» — ccxt 4.4.65 BadRequest (→ reconciliation)
+INVALID_ORDER = frozenset({'51170', '51205', '51051', '51052', '51053', '51000', '50014', '50016'})
 
 # Canceling an order no longer in the book: 51400 «Order cancellation failed as
 # the order has been filled, canceled or does not exist.», 51401/51402 (already canceled/filled),

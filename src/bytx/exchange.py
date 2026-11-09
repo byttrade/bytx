@@ -112,6 +112,10 @@ _INT_LEVERAGE = frozenset({'binance', 'bingx', 'hyperliquid', 'kucoinfutures', '
 _SEPARATE_TP_SL = frozenset({'binance', 'hyperliquid', 'gate'})
 # Margin mode is sent with every order (OKX tdMode, KuCoin marginMode), so it must be explicit.
 # Bitget marginMode is required in Place Order; MEXC openType is required; on HTX the mode selects the endpoint
+# s: price used only for the minimum cost check (min_cost) before sending — from a cache, not a ticker per order
+_CHECK_PRICE_TTL = 5.0
+# s: how long to wait for a market order fill from the ``ex.stream.orders()`` stream before reading it over REST
+_WS_FILL_WAIT = 0.5
 _MODE_IN_ORDER = frozenset({'okx', 'kucoinfutures', 'bitget', 'mexc', 'htx'})
 # Leverage is sent with the order (KuCoin leverage, MEXC leverage "must be provided when opening", HTX lever_rate is
 # required and equals the open position's leverage); set_leverage only stores the value, so does set_margin_mode,
@@ -159,6 +163,14 @@ def _applied_leverage(exchange_id: str, response: Any) -> Optional[float]:
     return applied_leverage(response)
 
 
+def _ccxt_amount(request: dict) -> float:
+    """Amount for ccxt create_order. A spot buy for a quote amount without a price (amount None): the amount — ccxt
+    sends it (``params['cost']``: Binance quoteOrderQty, Bybit qty+marketUnit, OKX sz+tgtCcy, KuCoin funds), and
+    the amount only passes its rounding."""
+    amount = request['amount']
+    return float(request['params']['cost']) if amount is None else amount
+
+
 class Exchange:
     """Async client for one exchange and one account (not bound to a symbol)."""
 
@@ -195,6 +207,8 @@ class Exchange:
         # Binance: conditional orders live in the Algo API (own algoId); remember those created here
         # so that order/cancel_order go to /fapi/v1/algoOrder instead of /fapi/v1/order
         self._binance_algo_ids: set[str] = set()
+        # symbol → (price, time.monotonic()): a fresh ticker or the average of a filled market order (_CHECK_PRICE_TTL)
+        self._check_prices: dict[str, tuple[float, float]] = {}
         self.market_type = market_type
         # demo: bool (as before); environment via demo_env: None (live), 'demo' or 'testnet' (Binance only)
         self.demo_env: Optional[str] = demo_env(name, demo)
@@ -262,6 +276,14 @@ class Exchange:
             # key is an API wallet: info requests use the main account address (otherwise balance and positions are empty)
             from bytx.exchanges.hyperliquid.ccxt_fixes import resolve_master_address
             await resolve_master_address(self._ex)
+        if self._ex.id == 'bybit' and self._ex.apiKey:
+            # account type (UTA): ccxt learns it with two requests (query-api, account/info) on the first trading
+            # call — done during warm-up; if it fails, ccxt retries there as before
+            try:
+                await self._call(self._ex.is_unified_enabled)
+            except BytxError as e:
+                from loguru import logger
+                logger.debug(f'{self.name}: Bybit account type not learned during warm-up: {e.message or e}')
         if gen != self._close_gen:
             await self._net.close()  # close() already ran: do not leave background tasks
             self._check_not_closed(gen)
@@ -1554,7 +1576,7 @@ class Exchange:
             await self._pre_submit(r)
         try:
             raw = await self._call(self._ex.create_orders, [
-                {'symbol': r['symbol'], 'type': r['type'], 'side': r['side'], 'amount': r['amount'],
+                {'symbol': r['symbol'], 'type': r['type'], 'side': r['side'], 'amount': _ccxt_amount(r),
                  'price': r['price'], 'params': r['params']} for r in requests], safe=False)
         except BytxError as e:
             kind = classify_outcome(self._ex.id, e)
@@ -1810,7 +1832,7 @@ class Exchange:
         return unknown
 
     async def cancel_order(self, symbol: str, order_id: Optional[str] = None, *,
-                           client_id: Optional[str] = None) -> Order:
+                           client_id: Optional[str] = None, strict: bool = False) -> Order:
         """Cancels an order by exchange id or by your own ``client_id``.
 
         If the order is no longer in the book (filled, canceled earlier, expired), this is not
@@ -1820,16 +1842,21 @@ class Exchange:
         110001/110008/110010, OKX 51400–51402/51603, BingX 109421, KuCoin 100004). If
         the order is not found afterwards either, the original error (OrderNotFound) is raised.
 
+        ``strict=True`` — no status read: if the order is no longer in the book, the exchange error is raised at once
+        (:class:`~bytx.errors.OrderNotFound` / :class:`~bytx.errors.InvalidOrder` with its ``code``, e.g. Binance
+        -2011).
+
         Binance: an algoId (TP/SL) is canceled via the Algo API even after a restart (without process memory).
         """
         await self.connect()
-        order, _ = await self._cancel(self.symbol(symbol), order_id, client_id)
+        order, _ = await self._cancel(self.symbol(symbol), order_id, client_id, strict=strict)
         return order
 
-    async def _cancel(self, s: str, order_id: Optional[str], client_id: Optional[str]) -> tuple[Order, bool]:
+    async def _cancel(self, s: str, order_id: Optional[str], client_id: Optional[str], *,
+                      strict: bool = False) -> tuple[Order, bool]:
         """Cancel → (order, whether we canceled it). False means the order was already in a final status."""
         with self._journal_op(s, [order_id, client_id]):
-            order, ours = await self._cancel_one(s, order_id, client_id)
+            order, ours = await self._cancel_one(s, order_id, client_id, strict=strict)
         if self.intents is not None:
             self.intents._on_update(self, order)
         if self.journal is not None:
@@ -1838,13 +1865,14 @@ class Exchange:
             self.emit('order.canceled', symbol=order.symbol or s, order=order, data={'ours': ours})
         return order, ours
 
-    async def _cancel_one(self, s: str, order_id: Optional[str], client_id: Optional[str]) -> tuple[Order, bool]:
+    async def _cancel_one(self, s: str, order_id: Optional[str], client_id: Optional[str], *,
+                          strict: bool = False) -> tuple[Order, bool]:
         oid = str(order_id) if order_id else None
         if oid and oid in self._binance_algo_ids:
             try:
                 raw = await self._binance_algo('DELETE', s, oid)
             except BytxError as e:
-                if not order_not_open(self._ex.id, e):
+                if strict or not order_not_open(self._ex.id, e):
                     raise
                 return await self._already_closed(s, oid, None, e), False
             self._binance_algo_ids.discard(oid)
@@ -1857,14 +1885,16 @@ class Exchange:
                 # Binance: may be an algoId (TP/SL not created here or before a restart); only
                 # if no such id exists among regular orders and an algo order with it exists for this symbol
                 if not await self._is_unregistered_algo(s, oid):
+                    if strict:
+                        raise
                     return await self._already_closed(s, oid, None, e), False
                 self._binance_algo_ids.add(oid)
-                return await self._cancel_one(s, oid, None)  # now the Algo API branch
+                return await self._cancel_one(s, oid, None, strict=strict)  # now the Algo API branch
         elif client_id:
             try:
                 raw = await self._call(self._ex.cancel_order, None, s, cancel_client_id_params(self._ex, client_id))
             except BytxError as e:
-                if not order_not_open(self._ex.id, e):
+                if strict or not order_not_open(self._ex.id, e):
                     raise
                 return await self._already_closed(s, None, client_id, e), False
         else:
@@ -2701,6 +2731,24 @@ class Exchange:
             return t.mark or t.mid or t.last
         return (t.ask if side == 'buy' else t.bid) or t.last or t.mark
 
+    def _cached_price(self, s: str, side: Optional[Side]) -> Optional[float]:
+        """Price without a request: a fresh WS cache or the minimum-check cache younger than ``_CHECK_PRICE_TTL``;
+        None — none."""
+        price = self._ws_price(s, side)
+        if price:
+            return price
+        hit = self._check_prices.get(s)
+        return hit[0] if hit is not None and time.monotonic() - hit[1] < _CHECK_PRICE_TTL else None
+
+    async def _check_price(self, s: str, side: Optional[Side]) -> float:
+        """Price for the minimum cost check: from the cache (:meth:`_cached_price`), otherwise the reference price —
+        cached."""
+        price = self._cached_price(s, side)
+        if price is None:
+            price = await self._reference_price(s, side)
+            self._check_prices[s] = (price, time.monotonic())
+        return price
+
     async def _reference_price(self, s: str, side: Optional[Side]) -> float:
         """Reference price: buy uses ask, sell uses bid, None uses mark/mid.
 
@@ -2811,17 +2859,24 @@ class Exchange:
                               details={'symbol': s, 'type': order_type})
 
         ref_price = price
-        needs_ref = (notional is not None or margin is not None
+        quote_buy = notional is not None and order_type == 'market' and side == 'buy' and self.market_type == 'spot'
+        if quote_buy and ref_price is None:
+            # the quote amount is compared with the minimum without a price; the price only from WS / the cache
+            # (amount estimate, OKX minSz). The risk guard and the paper engine need the amount — a ticker for them
+            ref_price = (await self._reference_price(s, side) if self.risk is not None or self.is_paper
+                         else self._cached_price(s, side))
+        quote_params = self._spot_quote_buy(s, m, cast(float, notional), ref_price) if quote_buy else None
+        needs_ref = ((notional is not None and quote_params is None) or margin is not None
                      or (order_type == 'market' and self._ex.id == 'hyperliquid'))
-        # reduce-only notional is not checked (below): it needs a price only if unavoidable
-        if ref_price is None and (needs_ref or (m.min_cost and not reduce_only)):
+        if ref_price is None and needs_ref:
             ref_price = await self._reference_price(s, side)
+        elif ref_price is None and quote_params is None and m.min_cost and not reduce_only:
+            # only the minimum cost check (reduce-only is not checked): WS / TTL cache / ticker
+            ref_price = await self._check_price(s, side)
 
-        quote_params = (self._spot_quote_buy(s, m, notional, ref_price)
-                        if notional is not None and order_type == 'market' and side == 'buy'
-                        and self.market_type == 'spot' else None)
         if quote_params is not None:
-            amount = notional / ref_price  # type: ignore[operator]  # estimate: the exchange sizes by the amount
+            # estimate: the exchange sizes by the amount; without a price — 0, None in the request (_ccxt_amount)
+            amount = notional / ref_price if ref_price else 0.0  # type: ignore[operator]
         elif margin is not None:
             amount = self._margin_contracts(s, m, side, margin, leverage, price, ref_price, order_type,
                                             max_round_up=max_round_up)
@@ -2928,7 +2983,8 @@ class Exchange:
             # check TP against SL before sending: after placement it is too late
             _protection._check_prices('long' if side == 'buy' else 'short', take_profit, stop_loss, self.name)
             separate = {'take_profit': take_profit, 'stop_loss': stop_loss}
-        return {'symbol': s, 'type': order_type, 'side': side, 'amount': amount, 'price': out_price,
+        return {'symbol': s, 'type': order_type, 'side': side,
+                'amount': None if quote_params is not None and not amount else amount, 'price': out_price,
                 'params': p, 'client_id': cid, 'submitted_at': int(time.time() * 1000),
                 'tp_sl': separate, 'reduce_only': reduce_only, 'journal_role': journal_role,
                 'attach_client_id': attach_cid, 'attach_role': attach_role if attach_cid else None,
@@ -2998,7 +3054,7 @@ class Exchange:
             fn, order_params = self._ex.create_order, request['params']
         try:
             raw = await self._ws_timed('create', use_ws, fn, request['symbol'], request['type'],
-                                       request['side'], request['amount'], request['price'], order_params)
+                                       request['side'], _ccxt_amount(request), request['price'], order_params)
         except BytxError as e:
             # no reconciliation (latency path): unclear outcome raises OrderStatusUnknown, the caller reconciles
             failure = await self._unplaced(request, e, reconcile=False)
@@ -3013,6 +3069,8 @@ class Exchange:
             raise failure from failure.__cause__
         self._remember_algo(raw)
         order = self._order(raw, fallback=request)
+        if self.market_type == 'spot' and request['type'] == 'market':
+            order = await self._complete_market(order, request['symbol'])   # same completeness as place_order
         if self.journal is not None:
             await self.journal._on_placed(self, order, request)
         if self.intents is not None:
@@ -3478,7 +3536,7 @@ class Exchange:
         await self._pre_submit(request)
         try:
             raw = await self._call(self._ex.create_order, request['symbol'], request['type'],
-                                   request['side'], request['amount'], request['price'],
+                                   request['side'], _ccxt_amount(request), request['price'],
                                    request['params'], safe=False)
         except BytxError as e:
             result = await self._unplaced(request, e, reconcile=reconcile)
@@ -3488,7 +3546,30 @@ class Exchange:
                 raise
             raise result from result.__cause__
         self._remember_algo(raw)
-        return self._order(raw, fallback=request)
+        order = self._order(raw, fallback=request)
+        if self.market_type == 'spot' and request['type'] == 'market':
+            order = await self._complete_market(order, request['symbol'])
+        return order
+
+    async def _complete_market(self, order: Order, s: str) -> Order:
+        """Spot market: a placement response without ``filled`` (Bybit, OKX, KuCoin — only the id) — the final order
+        from the ``ex.stream.orders()`` stream if it is subscribed (up to ``_WS_FILL_WAIT`` s, no request), otherwise
+        one :meth:`order` (filled, average, fee); if it cannot be read — the response as is with
+        ``partial_info=True``. ``average`` goes to the minimum-check price cache (the next order needs no ticker)."""
+        streams = getattr(self, '_streams', None)
+        if order.filled is None and order.id and streams is not None:
+            ws = await streams.final_order(order.id, _WS_FILL_WAIT)
+            if ws is not None and ws.filled is not None:
+                order = ws
+        if order.filled is None and order.id:
+            try:
+                order = await self.order(s, order.id)
+            except BytxError:
+                order.partial_info = True
+                return order
+        if order.average:
+            self._check_prices[s] = (order.average, time.monotonic())
+        return order
 
     async def _unplaced(self, request: dict, error: BytxError, *, reconcile: bool) -> Union[Order, BytxError]:
         """create_order error → an error for the caller or an order found by reconciliation."""

@@ -285,6 +285,8 @@ class Order:
     contracts: Optional[float] = None
     filled_contracts: Optional[float] = None
     remaining_contracts: Optional[float] = None
+    # spot market: the placement response has no fill (filled/average/fee) and the order could not be read
+    partial_info: bool = False
 
     @property
     def is_open(self) -> bool:

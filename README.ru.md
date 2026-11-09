@@ -413,6 +413,14 @@ await ex.sell_all('DOGE/USDT', client_id='s1')            # весь свобо�
 - Сбой страницы истории никогда не считается «ордера нет»: `find_order` — `RequestTimeout`; обрыв пагинации —
   `ExchangeError`. Таймаут размещения на споте сверяется тем же поиском — второй ордер не отправляется.
 - KuCoin: пустой ответ `data: null` считается «не найден» (ответ на несуществующий ордер в документации не описан).
+- Один запрос на market-ордер: `buy(notional=…)` без цены, `size` проверяет минимум суммы по цене из кэша на 5 с.
+  Ответ без исполнения (Bybit, OKX, KuCoin) дополняется из потока `ex.stream.orders()`, если он подписан, иначе одним
+  `order(id)`; не вышло — у ордера `partial_info=True`.
+- Явный отказ биржи — сразу `InvalidOrder` (ниже минимума у Bybit — `OrderTooSmall`), ошибка ccxt — в `__cause__`;
+  сверка — только при таймаутах и кодах «исход неизвестен».
+- `cancel_order(..., strict=True)` — если ордер уже не открыт, ошибка биржи (например, Binance -2011), а не финальный
+  статус. `exchange_client_id(ex, market, client_id)` — cid в том виде, в каком он уйдёт на биржу.
+- Binance: `demo=True` — Demo Mode, `demo='testnet'` — прежний testnet.
 
 ## WebSocket
 
