@@ -35,10 +35,10 @@ def orders(hub: Any) -> FeedSpec:
     _require(ex, 'watchOrders', hub.name)
     exchange = hub.exchange
 
-    if hub.name in ('okx', 'blofin'):
+    if hub.name == 'okx' or (hub.name == 'blofin' and hub.exchange.market_type != 'spot'):
         # OKX: conditional orders (TP/SL) — a separate orders-algo channel on the business connection,
         # ccxt has its own messageHash and cache for it (demo 2026-10-29: 0 TP/SL events in watch_orders)
-        # BloFin: TP/SL — orders-algo channel (F#ws-algo-orders-channel), subscribed in exchanges/blofin/ccxt_fixes
+        # BloFin swap: TP/SL — orders-algo channel (F#ws-algo-orders-channel), subscribed in exchanges/blofin/ccxt_fixes
         watch = _merged_watch(lambda: ex.watch_orders(), lambda: ex.watch_orders(params={'trigger': True}))
     else:
         def watch() -> Any:

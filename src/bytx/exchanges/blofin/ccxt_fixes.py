@@ -35,7 +35,8 @@ demo. Patches are per instance only.
   previous ``seqId``; no checksum. ccxt does not check gaps — a missed increment: the book is reset, the subscription is
   rejected (resubscribe — a new snapshot).
 - **WS trades**: there is no channel — ``watch_my_trades``, on growth of ``filledSize`` in WS orders, reads the order's
-  trades from REST fills-history (real tradeId). ``watchBalance`` (account channel) exists in ccxt, the has flag does not.
+  trades from REST fills-history (real tradeId) — only after the first ``watch_my_trades`` (no subscriber, no
+  requests). ``watchBalance`` (account channel) exists in ccxt, the has flag does not.
 - **WS orders-algo** (F#ws-algo-orders-channel): TP/SL and trigger orders have their own channel (not in ccxt);
   ``watch_orders`` with ``params={'trigger': True}`` subscribes to it, orders carry ids ``tpslId`` / ``algoId``.
 """
@@ -70,6 +71,9 @@ _EXACT = {
     '152409': AuthenticationError, '152404': PermissionDenied, '152406': PermissionDenied,
     '152405': InvalidNonce, '152407': InvalidNonce, '152410': InvalidNonce,
     '429': RateLimitExceeded,
+    # Spot API (demo 2026-11-09): cancelling a closed / missing order — top-level 106080;
+    # below minSize — 106070, not a multiple of lotSize — 106071 (code 1 + data[i].code)
+    '106080': OrderNotFound, '106070': InvalidOrder, '106071': InvalidOrder,
 }
 _TIF_TYPES = {'IOC': 'ioc', 'FOK': 'fok', 'PO': 'post_only'}
 
@@ -393,10 +397,14 @@ def _fix_ws(exchange: Any) -> None:
             size = exchange.safe_number(row, 'filledSize') or 0.0
             if size > filled.get(row['orderId'], 0.0):
                 filled[row['orderId']] = size
-                asyncio.ensure_future(fetch_fills(client, row, size))
+                # fills-history only while someone listens for trades (watch_my_trades): otherwise an extra REST
+                # call per execution (one request per market order)
+                if exchange.options.get('bytxWatchMyTrades'):
+                    asyncio.ensure_future(fetch_fills(client, row, size))
         return result
 
     async def watch_my_trades(symbol: Any = None, since: Any = None, limit: Any = None, params: Any = None) -> Any:
+        exchange.options['bytxWatchMyTrades'] = True    # from now on executions are read from fills-history
         await exchange.load_markets()
         await exchange.authenticate()
         url = exchange.implode_hostname(exchange.urls['api']['ws']['swap']['private'])
@@ -457,3 +465,6 @@ def apply(exchange: Any) -> None:
     _fix_order_endpoints(exchange)
     _fix_account(exchange)
     _fix_ws(exchange)
+    if (exchange.options or {}).get('defaultType') == 'spot':
+        from bytx.exchanges.blofin import spot
+        spot.apply(exchange)   # Spot API (S#…) on top of the common fixes: paths, markets, orders, balance, WS

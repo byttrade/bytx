@@ -130,17 +130,19 @@ _FILL_HISTORY_PAGE = 1000
 _FILL_HISTORY_MAX_PAGES = 20
 
 
-async def _fill_history(exchange: Any, market: dict, since: Any, limit: Any, now: int) -> list:
+async def _fill_history(exchange: Any, market: dict, since: Any, limit: Any, now: int, until: Any = None) -> list:
     """Swap/Trades Endpoints/Query historical transaction details (GET /openApi/swap/v2/trade/fillHistory).
 
     Unlike allFillOrders, the row carries tradeId — the same id as «td» in the WS order event
     (demo VST 2026-10-29: 587875982 in both). With the synthetic allFillOrders id, one trade from
     REST reconciliation and from the stream was counted twice (demo: engine position 2.19 vs 0.73 on the exchange).
     Docs: startTs < filledTime <= endTs, both required, window — 7 days from the current date, sorted
-    by filledTime ascending; currency defaults to USDT (passed for USDC pairs).
+    by filledTime ascending; currency defaults to USDT (passed for USDC pairs). ``until`` — endTs; if the pages do
+    not cover the window with ``until`` — ExchangeError (an incomplete window is never returned as complete).
     """
     start = max(int(since) - 1 if since is not None else 0, now - _FILL_HISTORY_WINDOW_MS)
-    request = {'symbol': market['id'], 'startTs': start, 'endTs': now, 'pageSize': _FILL_HISTORY_PAGE}
+    request = {'symbol': market['id'], 'startTs': start, 'endTs': now if until is None else min(int(until), now),
+               'pageSize': _FILL_HISTORY_PAGE}
     settle = market.get('settle')
     if settle and settle.upper() == 'USDC':
         request['currency'] = 'USDC'
@@ -153,6 +155,9 @@ async def _fill_history(exchange: Any, market: dict, since: Any, limit: Any, now
         total = exchange.safe_integer(data, 'total')
         if len(batch) < _FILL_HISTORY_PAGE or (total is not None and len(rows) >= total):
             break
+    else:
+        if until is not None:
+            raise ccxt.ExchangeError(f'bingx fillHistory: {_FILL_HISTORY_MAX_PAGES} pages — window not read completely')
     trades = [_parse_fill_history_row(exchange, row, market) for row in rows]
     trades = [t for t in trades if since is None or (t['timestamp'] or 0) >= since]
     return trades[-limit:] if limit else trades
@@ -222,7 +227,7 @@ def _fix_my_trades(exchange: Any) -> None:
 
     exchange.fetch_my_trades = fetch_my_trades
 
-    async def fetch_fill_history(symbol, since=None, limit=None):
+    async def fetch_fill_history(symbol, since=None, limit=None, until=None):
         """Linear swap trades with tradeId (fillHistory); None — window older than 7 days or not swap:
         the caller falls back to fetch_my_trades (allFillOrders)."""
         await exchange.load_markets()
@@ -230,7 +235,7 @@ def _fix_my_trades(exchange: Any) -> None:
         now = exchange.milliseconds()
         if not _is_linear_swap(market) or (since is not None and since <= now - _FILL_HISTORY_WINDOW_MS):
             return None
-        return await _fill_history(exchange, market, since, limit, now)
+        return await _fill_history(exchange, market, since, limit, now, until)
 
     exchange.bytx_fetch_fill_history = fetch_fill_history
 

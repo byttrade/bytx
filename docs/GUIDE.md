@@ -3,7 +3,7 @@
 **English** | [Русский](GUIDE.ru.md) · [← README](../README.md)
 
 A typed **async** Python SDK for crypto exchanges: Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget;
-in beta: Gate, MEXC, HTX, BloFin (USDT-M futures).
+in beta: Gate, MEXC, HTX, BloFin (spot and USDT-M futures).
 One interface for spot and perpetual futures, WebSocket with smart reconnects,
 a proxy per account, and tooling for scalping.
 
@@ -126,6 +126,13 @@ also returns the exchange's zero entries (`size=0`; a zero one-way position has 
 is the hedge position side of a trade from the exchange's data (REST and WS: Binance/BingX `positionSide`/`ps`, OKX
 `posSide`); `None` — one-way, or the exchange doesn't report the side in a trade (Bybit has `positionIdx` only on the
 order, not on the execution).
+
+`my_trades(symbol, since=, until=, order_id=, client_id_prefix=)`: `order_id` — only that order's trades (filtered by
+the exchange on Binance, OKX and KuCoin, by the SDK elsewhere — set `since` no later than the order);
+`client_id_prefix` — trades of your bot's orders (if the exchange omits the client_id in trades, it is taken from the
+order). `until` (ms, inclusive) returns the whole `[since, until]` window: pages run to the end of the window, and if
+the window cannot be read completely you get an error, never a partial list (requires `symbol` and `since`, no
+`limit`).
 
 **Trading:** `buy` / `sell` / `place_order` (market/limit, `post_only`, `time_in_force`, `reduce_only`,
 `take_profit` / `stop_loss`, `client_id`), `place_orders`, `amend_order`, `cancel_order`, `cancel_orders`,
@@ -284,7 +291,7 @@ a contract ≠ a coin (`Market.contract_size`): `BTC-USDT-SWAP` is 0.01 BTC, `XB
 
 | | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ | — ⁹ |
+| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ | ✓ ⁹ |
 | Perpetual futures | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
 | Demo / testnet | ✓ | ✓ | ✓ | futures | ✓ | — ² | ✓ ³ | ✓ ⁴ | — ⁷ | — ⁷ | ✓ |
 | Orders over WS | ¹ | ¹ | ✓ | — | ¹ | — | — | ✓ | — | — | — |
@@ -299,8 +306,8 @@ a contract ≠ a coin (`Market.contract_size`): `BTC-USDT-SWAP` is 0.01 BTC, `XB
 ⁶ MEXC spot: WS streams are NotSupported (the exchange sends protobuf, ccxt 4.4.65 uses the old JSON channels); REST — ✓.
 ⁷ MEXC has no testnet in its docs; HTX lists "Testnet (Stopped)": `demo=True` → `NotSupported`, test on paper.
 ⁸ HTX docs have no broker tag mechanism: ccxt's undocumented `channel_code` is removed, and there is no own ID.
-⁹ BloFin: spot is not supported yet; Multi-Position mode is not supported — `ConfigError` before trading
-(see «BloFin (beta)» below).
+⁹ BloFin spot: no amend, TP/SL or trailing (`NotSupported` before sending); futures: Multi-Position mode is not
+supported — `ConfigError` before trading (see «BloFin (beta)» below).
 
 `demo=True` is the exchange's own testnet/demo (Bybit — demo trading, others — the exchange sandbox),
 **except Binance** — see below. It is not a simulator; the in-memory
@@ -967,7 +974,7 @@ On MEXC `check_key()` detects trading permission with a probe — cancelling a k
 
 USDT-M perpetual futures: `create_exchange('blofin', api_key=…, secret=…, password=…)`; `demo=True` — the BloFin demo
 host. Rules follow the official docs, ccxt 4.4.65 discrepancies are fixed in `exchanges/blofin/ccxt_fixes.py`, exchange
-code lives in `exchanges/blofin/`. Spot is not supported yet (`market='spot'` → `ConfigError`).
+code lives in `exchanges/blofin/`. Spot — `market='spot'` (Spot API, see below).
 
 ```python
 ex = create_exchange('blofin', api_key=…, secret=…, password=…, margin_mode='cross')  # mode sent with every order
@@ -990,6 +997,13 @@ Fixed relative to ccxt 4.4.65: market `settle` from `settleCurrency` (SDK market
 FOK were lost, a unique `ACCESS-NONCE` (ccxt reused the timestamp — parallel requests were rejected), errors in a
 `data` object with `code` 0, codes 150004 / 103003 (funds), 102068 / 102067 / 1000 (no such order), 429 (rate limit),
 leverage limited to the instrument's `maxLeverage`, `batch-leverage-info` instead of the deprecated `leverage-info`.
+
+**Spot** (`create_exchange('blofin', market='spot', …)`, demo too): ccxt 4.4.65 has no BloFin spot, so the SDK sends
+its requests to the Spot API (`/api/v1/spot/…`, `instType=SPOT`). `buy(notional=…)` is a market buy for the quote
+amount (`targetCurrency=quote_currency`), other market orders are in base; size limits (`minSize` / `lotSize`, in
+base) are checked before sending; the order and trade fee currency is the market's base or quote. Batches and cancel
+by id / client_id work as on futures; amend, TP/SL (in the order and standalone), trailing, leverage and positions —
+`NotSupported` before sending. WebSocket: order book (`prevSeqId` check), orders and balance (`spot-account`).
 
 ## Proxies and multiple accounts
 
@@ -1035,6 +1049,8 @@ async with AccountPool.from_file('accounts.yaml') as pool:
   symbols (ledger, positions, unrealized PnL), equity — of the whole account. Checked on Bybit / Binance / OKX /
   BingX demo (2026-11-04): equity = the exchange response, realized PnL and fees of own trades = the ledger,
   funding = the exchange ledger and −size × mark × rate.
+- **Funding of one symbol** (`ex.funding_paid(symbol, since=, until=)`): funding entries for the window from the same
+  ledger, `total` (+ received / − paid), `complete` / `issues` as in the report.
 - **Key check** (`ex.check_key()`, `ex.account_uid()`): trading and withdrawal permissions, transfers, IP
   binding, account type (Bybit unified/classic, OKX acctLv, Binance multi-assets, HL abstraction), position
   mode, UID — from the exchange's key permissions endpoint per its docs. A key with withdrawal rights is rejected by default
@@ -1214,6 +1230,11 @@ Without your own id the SDK generates one (with the `client_id_prefix` tag, if s
 - `bytx.generate_client_id(ex, prefix='d0123…')` — an id in the exchange's format and length.
 - `bytx.owns(order, prefix, exchange)` — whether the order is yours (Hyperliquid and BingX — case-insensitive).
   `Order.client_id` is logical: the Binance broker prefix is stripped.
+- `bytx.numeric_client_id_prefix(tag)` — a numeric tag (up to 8 digits) for exchanges with an integer client_id (HTX
+  USDT-M), deterministically derived from any tag.
+- `ex.client_id_lookup_exact` — `True` if the exchange looks an order up by client_id in any status (Binance, Bybit,
+  OKX, KuCoin, Bitget, Hyperliquid, MEXC, BloFin swap): then «not found» from `order` / `find_order` means there is
+  no such order. `False` (Gate, BingX, HTX, spot) — «not found» is not a proof.
 - `set_tp_sl(..., take_profit_client_id=, stop_loss_client_id=)` — a separate id per leg. On Bybit
   TP/SL are set on the position without a client_id — orders have `has_client_id=False` (same on Gate:
   price_orders have no user id; on BingX: "clientOrderId only supports LIMIT/MARKET order
@@ -1279,6 +1300,11 @@ settlement, exchange UI (`exchange_ui`: Bybit `createType` "web/app", Hyperliqui
 exchange bots, TP/SL child order (parent's origin); a foreign cid — `foreign_api` (on Binance —
 `unknown`: the exchange generates the cid itself); no cid — `manual` (`heuristic`). `confidence`: `exact` —
 an exchange marker or own cid, `heuristic` — inferred without a direct marker.
+
+**What closed a position** — `await ex.classify_close(order_or_fill)` (or `bytx.journal.classify_close(exchange_id, info=,
+client_id=, tag=)`): `liquidation`, `adl`, `settlement`, `bot` (your tag), `conditional` (a triggered TP/SL of unknown
+owner), `manual` or `unknown`, from the exchange's own markers on 11 exchanges (BingX — via its forced orders
+endpoint).
 
 **Intervention** — an `intervention` event (`kind`) and the `on_intervention=` callback:
 `foreign_order` (not our order in the position: manual add/reduce, third-party software),

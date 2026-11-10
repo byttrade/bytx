@@ -58,6 +58,10 @@ from bytx.net import MetricsSnapshot, NetLayer, deadline as net_deadline, deadli
 from bytx.net.timesync import SHARED_MAX_AGE_SEC
 from bytx.order_params import (
     cancel_client_id_params,
+    EXACT_CLIENT_ID_LOOKUP,
+    MY_TRADES_ORDER_FILTER,
+    MY_TRADES_SPOT_SPAN,
+    MY_TRADES_WINDOW,
     check_client_id_prefix,
     amend_client_id,
     client_id_params,
@@ -95,11 +99,12 @@ from bytx.types import (
 
 if TYPE_CHECKING:
     from bytx.journal import PositionJournal
+    from bytx.journal.origin import CloseVerdict
     from bytx.paper.exchange import PaperConfig
     from bytx.data import HistoryLoader
     from bytx.health import HealthReport
     from bytx.key_check import KeyInfo
-    from bytx.portfolio import AccountReport
+    from bytx.portfolio import AccountReport, FundingPaid
     from bytx.recovery import IntentStore, RecoveryReport
     from bytx.risk_sizing import OpenPositionResult, RiskPlan
 
@@ -291,8 +296,9 @@ class Exchange:
         if self._ex.id == 'blofin' and self._ex.apiKey:
             # key type (query-apikey) decides whether brokerId is sent; on failure the type is unknown, brokerId is sent
             from bytx.exchanges.blofin.api_key import load_key_type
-            from bytx.exchanges.blofin.leverage import position_mode as blofin_position_mode
             await load_key_type(self)
+        if self._ex.id == 'blofin' and self._ex.apiKey and self.market_type != 'spot':   # position mode — futures only
+            from bytx.exchanges.blofin.leverage import position_mode as blofin_position_mode
             # account mode during warm-up: Multi-Position is remembered and refuses every order (also with hedge
             # given to create_exchange); reads (balance, positions) work
             try:
@@ -688,7 +694,8 @@ class Exchange:
             return await order_by_id(self, s, str(order_id))   # finished orders are removed from order_info
         if order_id:
             try:
-                return self._found(await self._call(self._ex.fetch_order, order_id, s, self._fetch_order_params()))
+                found = self._found(await self._call(self._ex.fetch_order, order_id, s, self._fetch_order_params()))
+                return await self._hl_with_average(s, found) if self._ex.id == 'hyperliquid' else found
             except OrderNotFound:
                 if self._ex.id == 'gate':
                     # Gate: TP/SL is a price-triggered order with its own id (GET price_orders/{order_id})
@@ -704,10 +711,24 @@ class Exchange:
                 return self._order(self._ex.parse_order(binance_algo_as_order(algo), self._ex.market(s)))
         if not client_id:
             raise ConfigError(f'order_id or client_id is required ({s})', exchange=self.name, details={'symbol': s})
-        if self._ex.id == 'hyperliquid':
-            # orderStatus accepts cloid in the oid field (ccxt distinguishes it by length)
-            return self._found(await self._call(self._ex.fetch_order, client_id, s))
         return await self._order_by_client_id(s, client_id)
+
+    async def _hl_with_average(self, s: str, order: Order) -> Order:
+        """Hyperliquid: orderStatus carries no avgPx — the average price of a filled order comes from its trades
+        (userFillsByTime from the order time, filtered by oid). If the trades cannot be read, average stays None (the
+        order itself is read)."""
+        if order.average is not None or not order.filled_contracts or not order.id or not order.timestamp:
+            return order
+        try:
+            fills = await self.my_trades(s, since=order.timestamp, order_id=order.id)
+        except BytxError:
+            return order
+        size = sum(f.size or 0 for f in fills)
+        if size > 0:
+            order.average = sum((f.price or 0) * (f.size or 0) for f in fills) / size
+            if isinstance(order.raw, dict):
+                order.raw['average'] = order.average
+        return order
 
     async def find_order(self, symbol: str, client_id: str, *, timeout: float = 8.0,
                          min_scans: int = 2) -> Optional[Order]:
@@ -741,6 +762,15 @@ class Exchange:
         err = RequestTimeout(f'order with client_id {client_id} not verified ({why})', exchange=self.name,
                              details={'client_id': client_id, 'symbol': s, 'scans': ok_scans})
         raise err from scan_error
+
+    @property
+    def client_id_lookup_exact(self) -> bool:
+        """Whether the lookup by client_id is exact: «not found» from :meth:`find_order` / :meth:`order` proves there
+        is no such order (within the exchange's retention). False — the lookup also scans the open and recently closed
+        order lists, so «not found» is not a proof. Exchanges — :data:`bytx.order_params.EXACT_CLIENT_ID_LOOKUP`;
+        spot is not verified — False."""
+        # shortcut: spot is not verified against the docs — False; verify before relying on it for spot
+        return self.market_type != 'spot' and self._ex.id in EXACT_CLIENT_ID_LOOKUP
 
     @staticmethod
     def deadline(seconds: float) -> Any:
@@ -797,6 +827,10 @@ class Exchange:
         return self._order(self._ex.parse_order(row, m))
 
     async def _order_by_client_id(self, s: str, client_id: str) -> Order:
+        if self._ex.id == 'hyperliquid':
+            # orderStatus accepts cloid in the oid field (ccxt tells it apart by length); shared by order(client_id=)
+            # and find_order — otherwise find_order called fetch_order(None, clientOrderId) and missed a canceled order
+            return await self._hl_with_average(s, self._found(await self._call(self._ex.fetch_order, client_id, s)))
         if self._ex.id == 'bybit':
             return await self._bybit_order(s, None, client_id)
         if self._ex.id == 'bitget':
@@ -861,24 +895,102 @@ class Exchange:
         return self._order(found)
 
     async def my_trades(self, symbol: Optional[str] = None, *, since: Optional[int] = None,
-                        limit: Optional[int] = None) -> list[Fill]:
+                        limit: Optional[int] = None, order_id: Optional[str] = None,
+                        client_id_prefix: Optional[str] = None, until: Optional[int] = None) -> list[Fill]:
+        """Your own trades. ``order_id`` — only this order's trades: filtered by the exchange where the docs have the
+        parameter (:data:`bytx.order_params.MY_TRADES_ORDER_FILTER`), otherwise by ``Fill.order_id`` within the
+        ``since`` / ``limit`` window (set ``since`` no later than the order). ``client_id_prefix`` — trades of your own
+        orders (bot tag, :func:`~bytx.order_params.owns`): by the trade's client_id, or, if the exchange does not
+        return it in trades, by the order's client_id (one :meth:`order` per order, the client_id is copied into the
+        trade). Both filters require ``symbol``. ``until`` (ms, inclusive) — all trades of the window ``[since,
+        until]``: the window end goes into the request, pages run to the end of the window
+        (:data:`~bytx.order_params.MY_TRADES_WINDOW`); if the whole window cannot be read, an error is raised instead
+        of returning part of it. Only with ``symbol`` and ``since``, without ``limit``."""
         await self.connect()
+        if (order_id is not None or client_id_prefix is not None) and not symbol:
+            raise ConfigError('my_trades: order_id / client_id_prefix require symbol', exchange=self.name)
+        if until is not None and (not symbol or since is None or limit is not None or since > until):
+            raise ConfigError('my_trades: until requires symbol and since ≤ until, without limit (whole window)',
+                              exchange=self.name)
         s = self.symbol(symbol) if symbol else None
+        order_id = None if order_id is None else str(order_id)
+        key = MY_TRADES_ORDER_FILTER.get(self._ex.id) if order_id is not None else None
         raw = None
         history = getattr(self._ex, 'bytx_fetch_fill_history', None)
         if s is not None and history is not None:
             # BingX: fillHistory with tradeId (= WS "td"), so the trade id is the same in REST and the stream; allFillOrders
             # returns no id, a synthetic id caused double counting (demo VST 2026-10-29)
-            raw = await self._call(history, s, since, limit)
+            raw = await self._call(history, s, since, limit, *(() if until is None else (until,)))
         if raw is None and s is not None and self._ex.id == 'bybit':
-            raw = await self._bybit_my_trades(s, since, limit)
+            raw = await self._bybit_my_trades(s, since, limit, until)
+        params = {key: order_id} if key else {}
+        if raw is None and until is not None:
+            raw = await self._my_trades_window(s, since, until, params)    # type: ignore[arg-type]
         if raw is None:
-            raw = await self._call(self._ex.fetch_my_trades, s, since, limit)
-        return [convert.fill(t, self._market_or_none(t.get('symbol')), self._ex.id) for t in raw or []]
+            raw = await self._call(self._ex.fetch_my_trades, s, since, limit, params)
+        if until is not None:
+            raw = [t for t in raw or () if (t.get('timestamp') or 0) <= until]
+        fills = [convert.fill(t, self._market_or_none(t.get('symbol')), self._ex.id) for t in raw or ()]
+        if order_id is not None:
+            fills = [f for f in fills if f.order_id == order_id]
+        if client_id_prefix is not None and s is not None:
+            fills = await self._own_fills(s, fills, client_id_prefix)
+        return fills
 
-    async def _bybit_my_trades(self, s: str, since: Optional[int], limit: Optional[int]) -> list[dict]:
-        """Bybit: the symbol's trades — all pages (100 each, cursor) over 7-day windows up to now; ccxt returns one page
-        (50) of one window. Each page is a separate call through the rate limiter; parsing — ccxt parse_trades."""
+    async def _my_trades_window(self, s: str, since: int, until: int, params: dict) -> list[dict]:
+        """All trades of the window ``[since, until]``: the window end goes into the request, a full page splits the
+        window in half (see :data:`~bytx.order_params.MY_TRADES_WINDOW`). More than a page of trades within one ms —
+        ExchangeError."""
+        if self._ex.id not in MY_TRADES_WINDOW:
+            raise NotSupported(f'my_trades(until=): the {self._ex.id} trade window is not verified against the docs',
+                               exchange=self.name)
+        page, span = MY_TRADES_WINDOW[self._ex.id]
+        if self.market_type == 'spot':
+            span = MY_TRADES_SPOT_SPAN.get(self._ex.id, span)
+        stack, start = [], since
+        while start <= until:                                   # a request (window ± 1 ms) is not wider than the docs span
+            end = until if span is None else min(until, start + span - 3)
+            stack.append((start, end))
+            start = end + 1
+        rows: dict = {}
+        while stack:
+            a, b = stack.pop()
+            # bounds with a margin (strict on some exchanges, not on others; Gate — seconds, ccxt drops ms), extra rows
+            # are filtered out
+            end_param = b + (1000 if self._ex.id == 'gate' else 1)
+            got = await self._call(self._ex.fetch_my_trades, s, a - 1, page, {**params, 'until': end_param})
+            if len(got) >= page:
+                if a >= b:
+                    raise ExchangeError(f'my_trades {s}: at least {page} trades within {a} ms — the window was not '
+                                        'read completely', exchange=self.name)
+                m = (a + b) // 2
+                stack += [(a, m), (m + 1, b)]
+                continue
+            for t in got:
+                if a <= (t.get('timestamp') or 0) <= b:
+                    rows[t.get('id') or id(t)] = t
+        return sorted(rows.values(), key=lambda t: t.get('timestamp') or 0)
+
+    async def _own_fills(self, s: str, fills: list[Fill], prefix: str) -> list[Fill]:
+        """Trades of your own orders: by the trade's client_id, otherwise by the order's client_id (one request per
+        order)."""
+        cids: dict[str, Optional[str]] = {}
+        for f in fills:
+            if not f.client_id and f.order_id and f.order_id not in cids:
+                cids[f.order_id] = (await self.order(s, f.order_id)).client_id
+        out = []
+        for f in fills:
+            if not f.client_id and f.order_id:
+                f.client_id = cids.get(f.order_id)
+            if owns(f, prefix, self._ex.id):
+                out.append(f)
+        return out
+
+    async def _bybit_my_trades(self, s: str, since: Optional[int], limit: Optional[int],
+                               until: Optional[int] = None) -> list[dict]:
+        """Bybit: the symbol's trades — all pages (100 each, cursor) over 7-day windows up to now (with ``until`` — up
+        to it, endTime in every window; not enough pages — ExchangeError); ccxt returns one page (50) of one window.
+        Each page is a separate call through the rate limiter; parsing — ccxt parse_trades."""
         import time as _time
 
         from bytx.exchanges.bybit import orders as bybit_orders
@@ -886,7 +998,10 @@ class Exchange:
         rows: list[dict] = []
         seen: set[str] = set()
         page_limit = min(bybit_orders.TRADES_PAGE_LIMIT, limit) if limit else bybit_orders.TRADES_PAGE_LIMIT
-        for start, end in bybit_orders.trade_windows(since, int(_time.time() * 1000)):
+        windows = bybit_orders.trade_windows(since, int(_time.time() * 1000) if until is None else until)
+        if until is not None:
+            windows[0] = (windows[0][0], until)          # the newest window ends at until, not open-ended
+        for start, end in windows:
             cursor: Optional[str] = None
             for _ in range(bybit_orders.TRADES_MAX_PAGES):
                 resp = await self._call(self._ex.private_get_v5_execution_list,
@@ -898,6 +1013,9 @@ class Exchange:
                 if not cursor or not new or (limit is not None and len(rows) >= limit):
                     break
             else:
+                if cursor and until is not None:
+                    raise ExchangeError(f'my_trades {s}: {bybit_orders.TRADES_MAX_PAGES} pages in window {start}..{end}'
+                                        ' — the window was not read completely', exchange=self.name)
                 if cursor and (limit is None or len(rows) < limit):
                     from loguru import logger
                     logger.warning(f'{self.name}: my_trades {s} — {bybit_orders.TRADES_MAX_PAGES} pages in window '
@@ -907,6 +1025,28 @@ class Exchange:
         if limit is not None:
             rows = rows[:limit]                          # rows are newest first: the latest ``limit`` trades
         return self._ex.parse_trades(rows, market, since)
+
+    async def classify_close(self, close: Union[Order, Fill], *, tag: Optional[str] = None) -> 'CloseVerdict':
+        """What closed the position: a closing order or fill → liquidation / ADL / settlement / our bot / triggered
+        conditional order / manual (:func:`bytx.journal.origin.classify_close`). ``tag`` — the bot tag (defaults to
+        the client's ``client_id_prefix``). BingX: the order carries no marker — the id is looked up in forceOrders
+        (``autoCloseType`` LIQUIDATION / ADL) within an hour around the order time."""
+        from bytx.journal.origin import classify_close
+        is_fill = isinstance(close, Fill)
+        raw = close.raw.get('info') if isinstance(close.raw, dict) else None
+        tag = tag if tag is not None else self.client_id_prefix
+        verdict = classify_close(self._ex.id, info=raw if isinstance(raw, dict) else {}, client_id=close.client_id,
+                                 tag=tag, kind='fill' if is_fill else 'order')
+        order_id = close.order_id if isinstance(close, Fill) else close.id
+        if self._ex.id == 'bingx' and verdict.reason in ('manual', 'unknown') and order_id and close.timestamp:
+            from bytx.journal.recovery import ExchangeHistorySource
+            hour = 3_600_000
+            forced, _ = await ExchangeHistorySource(self).forced_orders(close.symbol, close.timestamp - hour,
+                                                                         close.timestamp + hour)
+            origin = forced.get(str(order_id))
+            if origin is not None:
+                return type(verdict)(origin, 'exact', f'bingx: forceOrders autoCloseType ({origin})', verdict.origin)
+        return verdict
 
     async def trading_fee(self, symbol: str) -> TradingFee:
         await self.connect()
@@ -2836,7 +2976,7 @@ class Exchange:
         None (converted to base)."""
         info = m.raw.get('info') or {}
         ex_id = self._ex.id
-        if ex_id not in ('binance', 'bybit', 'okx', 'kucoin') or \
+        if ex_id not in ('binance', 'bybit', 'okx', 'kucoin', 'blofin') or \
                 (ex_id == 'binance' and info.get('quoteOrderQtyMarketAllowed') is False):
             return None
         step = {'binance': (m.raw.get('precision') or {}).get('quote'),
@@ -2850,7 +2990,7 @@ class Exchange:
         if quote <= 0 or quote < Decimal(str(minimum)):
             raise OrderTooSmall(f'amount {notional} is below the minimum {minimum} or the step {step} ({s})',
                                 exchange=self.name, details={'symbol': s, 'notional': notional})
-        if ex_id == 'okx' and m.min_amount and ref_price and float(quote) / ref_price < m.min_amount:
+        if ex_id in ('okx', 'blofin') and m.min_amount and ref_price and float(quote) / ref_price < m.min_amount:
             raise OrderTooSmall(f'amount {notional} at price {ref_price} is below minSz {m.min_amount} ({s})',
                                 exchange=self.name, details={'symbol': s, 'notional': notional})
         out: dict = {'cost': format(quote.normalize(), 'f')}
@@ -2858,6 +2998,8 @@ class Exchange:
             out['marketUnit'] = 'quoteCoin'
         elif ex_id == 'okx':
             out['tgtCcy'] = 'quote_ccy'
+        elif ex_id == 'blofin':
+            out['targetCurrency'] = 'quote_currency'   # S#place-order; size is the quote amount (spot.create_order_request)
         return out
 
     async def _build_order(self, symbol: str, side: Side, *, size: Optional[float] = None,
@@ -2943,6 +3085,8 @@ class Exchange:
 
         p: dict = {}
         if self._ex.id == 'blofin':
+            if self.market_type == 'spot' and (take_profit is not None or stop_loss is not None):
+                raise NotSupported(f'BloFin Spot API has no TP/SL in the order ({s})', exchange=self.name)
             if self._blofin_mode_error is not None:
                 raise self._blofin_mode_error   # Multi-Position on the account
             if not reduce_only:
@@ -3213,6 +3357,13 @@ class Exchange:
         :meth:`AccountPool.portfolio`."""
         from bytx.portfolio import account_report
         return await account_report(self, since=since, until=until, symbols=symbols, keep_items=keep_items)
+
+    async def funding_paid(self, symbol: str, *, since: int, until: Optional[int] = None) -> 'FundingPaid':
+        """Funding paid by the account for a symbol over ``[since, until]`` (ms), on every exchange: entries and
+        ``total`` (+ received / − paid), ``complete`` / ``issues`` — completeness. Source — the exchange's account ledger
+        (:func:`bytx.portfolio.funding_paid`)."""
+        from bytx.portfolio import funding_paid
+        return await funding_paid(self, symbol, since=since, until=until)
 
     async def check_key(self, *, withdraw: Literal['reject', 'warn', 'allow'] = 'reject') -> 'KeyInfo':
         """API key permissions from the exchange's key permissions endpoint (per docs): trading, withdrawal, transfers, IP

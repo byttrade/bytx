@@ -3,7 +3,7 @@
 [English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **Türkçe**
 
 Kripto para borsaları için tip güvenli, **async** bir Python SDK'sı. Desteklenen borsalar: Binance, Bybit,
-OKX, BingX, Hyperliquid, KuCoin, Bitget; beta aşamasında: Gate, MEXC, HTX, BloFin (USDT-M vadeli). Spot ve vadeli (perpetual) işlemler
+OKX, BingX, Hyperliquid, KuCoin, Bitget; beta aşamasında: Gate, MEXC, HTX, BloFin (spot ve USDT-M vadeli). Spot ve vadeli (perpetual) işlemler
 için tek bir arayüz, akıllı yeniden bağlanan WebSocket, hesap başına proxy ve scalping
 için araçlar sunar.
 
@@ -130,7 +130,7 @@ borsada aynı arayüzle.
 
 | | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Perpetual vadeli | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
 | Demo / testnet | ✓ | ✓ | ✓ | vadeli | ✓ | — | ✓ | ✓ | — | — | ✓ |
 | WS üzerinden emir | ✓ | ✓ | ✓ | — | ✓ | — | — | ✓ | — | — | — |

@@ -3,7 +3,7 @@
 [English](../README.md) | [Русский](README.ru.md) | [中文](README.zh-CN.md) | [Español](README.es.md) | **Português** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Türkçe](README.tr.md)
 
 SDK Python **async** e tipado para exchanges de criptomoedas: Binance, Bybit, OKX, BingX, Hyperliquid,
-KuCoin, Bitget; em beta: Gate, MEXC, HTX, BloFin (futuros USDT-M). Uma única interface para spot e futuros perpétuos, WebSocket com
+KuCoin, Bitget; em beta: Gate, MEXC, HTX, BloFin (spot e futuros USDT-M). Uma única interface para spot e futuros perpétuos, WebSocket com
 reconexão inteligente, um proxy por conta e ferramentas para scalping.
 
 > Documentação completa: [docs/GUIDE.md](GUIDE.md) (inglês)
@@ -129,7 +129,7 @@ saúde da exchange — tudo com a mesma interface em cada exchange.
 
 | | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (beta) | MEXC (beta) | HTX (beta) | BloFin (beta) |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Spot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Futuros perpétuos | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
 | Demo / testnet | ✓ | ✓ | ✓ | futuros | ✓ | — | ✓ | ✓ | — | — | ✓ |
 | Modo hedge | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ | ✓ |

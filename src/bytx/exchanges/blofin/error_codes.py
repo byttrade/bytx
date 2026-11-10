@@ -18,16 +18,19 @@ POSITION_CLOSED_IF_REDUCE: frozenset = frozenset()
 REDUCE_EXCEEDS: frozenset = frozenset()
 # 150004 «Insufficient balance», 103003 — not enough margin (ccxt 4.4.65: 150004 → InvalidOrder, 103003 unknown)
 INSUFFICIENT_FUNDS = frozenset({'150004', '103003'})
+# Spot API (demo 2026-11-09, demo_spot_size_rejects): 106070 «less than the minimum order quantity», 106071 — not a
+# multiple of lotSize.
 # Explicit parameter rejection: 152001–152005 (parameters; 152002 — both size below minSize / off lotSize and leverage
 # above maxLeverage — demo 2026-11-09, so the size is checked before the network), 152009 (clientOrderId format),
 # 152014 (no instId), 542 / 102014 / 102015 (above the maximum), 102064 / 102065 (price band), 102037–102055 (TP/SL vs
 # price), 102089 (wrong position mode); 102126 «SL trigger price should be lower than the mark price» — not in the docs
 # table, demo 2026-11-09 (SL near the mark price)
 INVALID_ORDER = frozenset({'152001', '152002', '152003', '152004', '152005', '152009', '152014', '542', '102014',
-                           '102015', '102064', '102065', '102089', '102126'} | {str(c) for c in range(102037, 102056)})
+                           '102015', '102064', '102065', '102089', '102126', '106070', '106071'}
+                          | {str(c) for c in range(102037, 102056)})
 # «The order is gone»: cancel 102068 (filled / triggered / canceled / not exist in one code), amend 102067, a batch
-# cancel element 1000 (demo 2026-11-09, demo_cancel_missing)
-ORDER_NOT_OPEN = frozenset({'102068', '102067', '1000'})
+# cancel element 1000 (demo 2026-11-09, demo_cancel_missing); spot — cancel 106080 (demo_spot_cancel)
+ORDER_NOT_OPEN = frozenset({'102068', '102067', '1000', '106080'})
 # Instrument closed for opening via API: 102167 (apiPermission=reduce_only), 102127 (temporarily)
 TRADING_UNAVAILABLE = frozenset({'102167', '102127'})
 RATE_LIMITED = frozenset({'429'})

@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-source--available-blue)](https://github.com/byttrade/bytx/blob/main/LICENSE)
 
 A typed **async** Python SDK for crypto exchanges. One interface for spot and perpetual futures on
-Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget; in beta: Gate, MEXC, HTX, BloFin (USDT-M futures).
+Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget; in beta: Gate, MEXC, HTX, BloFin (spot and USDT-M futures).
 
 ![One API for every exchange](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 

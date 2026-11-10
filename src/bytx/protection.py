@@ -1066,9 +1066,16 @@ _BYBIT_STOP_TYPES = {'TakeProfit': 'take_profit', 'PartialTakeProfit': 'take_pro
 _HL_TYPES = (('take profit', 'take_profit'), ('stop', 'stop_loss'))
 
 
+def _order_info(exchange_id: str, o: dict) -> dict:
+    info = o.get('info') if isinstance(o.get('info'), dict) else {}
+    inner = info.get('order') if exchange_id == 'hyperliquid' else None
+    # HL orderStatus: ccxt puts ``{"order": {…isTrigger, triggerPx…}, "status": …}`` into info — order fields are nested
+    return inner if isinstance(inner, dict) else info
+
+
 def _classify(exchange_id: str, o: dict) -> Optional[str]:
     """TP/SL kind of a ccxt order or None (a regular order)."""
-    info = o.get('info') if isinstance(o.get('info'), dict) else {}
+    info = _order_info(exchange_id, o)
     tp = o.get('takeProfitPrice')
     sl = o.get('stopLossPrice')
     if exchange_id == 'bybit':
@@ -1122,7 +1129,7 @@ def _wrap_listed(exchange_id: str, raw: dict, market: Optional[Market]) -> Optio
     if kind is None:
         return None
     order = convert.order(raw, market)
-    info = raw.get('info') if isinstance(raw.get('info'), dict) else {}
+    info = _order_info(exchange_id, raw)
     trigger = order.trigger_price
     if trigger is None:
         trigger = convert._f(info.get('stopPrice') or info.get('triggerPx') or info.get('triggerPrice'))
@@ -1138,7 +1145,8 @@ def _wrap_listed(exchange_id: str, raw: dict, market: Optional[Market]) -> Optio
         wrapped.has_client_id = False   # position TP/SL (trading-stop): their orderLinkId is empty
     if exchange_id == 'bingx' and not order.client_id:
         wrapped.has_client_id = False   # clientOrderID — LIMIT/MARKET only (Place order)
-    return _with_state(wrapped, exchange_id, info)
+    # state — from the whole response (HL orderStatus: the status sits next to the nested order)
+    return _with_state(wrapped, exchange_id, raw.get('info') if isinstance(raw.get('info'), dict) else {})
 
 
 async def _list_generic(ex: 'Exchange', s: str, m: Market, params: Optional[dict] = None) -> list[TpSlOrder]:

@@ -42,7 +42,9 @@ from bytx.exchanges.hyperliquid.builder import (
 )
 from bytx.exchanges.hyperliquid.markets import patch_hyperliquid_markets
 from bytx.utils.text import to_exchange_symbol
-from bytx.order_params import exchange_client_id, generate_client_id, max_client_id_len, owns
+from bytx.order_params import (
+    exchange_client_id, generate_client_id, max_client_id_len, numeric_client_id_prefix, owns,
+)
 from bytx.__version__ import (
     __version__,
     __version_info__,
@@ -104,6 +106,7 @@ __all__ = [
     'generate_client_id',
     'max_client_id_len',
     'owns',
+    'numeric_client_id_prefix',
     # errors
     'PositionOpenError',
     # Version metadata

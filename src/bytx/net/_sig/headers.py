@@ -441,7 +441,8 @@ def _apply_htx(exchange, first: bool) -> str:
 _BLOFIN_CODE_RE = re.compile(r'^[A-Za-z0-9]{1,16}$')
 # Placement requests with the brokerId field (B#get-rebate-guide); amend-* and cancels have no such field
 BLOFIN_BROKER_PATHS = frozenset({'trade/order', 'trade/batch-orders', 'trade/order-tpsl', 'trade/order-algo',
-                                 'trade/close-position'})
+                                 'trade/close-position', 'spot/trade/order', 'spot/trade/batch-orders',
+                                 'spot/trade/order-algo'})
 # GET /api/v1/user/query-apikey: type 1 — «Transaction» (the user's own key): brokerId → error 152011
 BLOFIN_TRANSACTION_KEY = 1
 

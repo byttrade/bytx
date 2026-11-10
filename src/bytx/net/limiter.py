@@ -156,7 +156,7 @@ ACCOUNT_ENDPOINTS: dict[str, list[tuple[re.Pattern, _Rule, str]]] = {
     # 10/3 units, orders / cancels / amend / TP/SL share one limit), IP — 500 / min (≈ 8.3/s → 1.2 units) and
     # 1500 / 5 min; ccxt 4.4.65 charges 1 unit (10/s) per IP.
     'blofin': [
-        (re.compile(r'^POST private:trade/'), (10 / 3, 1.2), ''),
+        (re.compile(r'^POST private:(spot/)?trade/'), (10 / 3, 1.2), ''),   # spot shares the limit (S#rest-api-limits)
         (re.compile(r'^\w+ (private|public):'), (None, 1.2), PER_ENDPOINT),
     ],
     # HTX USDT-swap (unit 100 ms): «private interface rate limit of API key is at most 144 times every 3 seconds for

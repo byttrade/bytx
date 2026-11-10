@@ -6,6 +6,7 @@ and margin parameters.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
 import uuid
@@ -82,6 +83,41 @@ CLIENT_ID_KEYS = {
 
 AUTO_PREFIX = 'bt'
 
+#: Exchange-side filter of trades by order (ccxt id → request key, ground truth): Binance userTrades ``orderId``,
+#: OKX fills / fills-history ``ordId``, KuCoin fills ``orderId``. Others — the SDK filters by ``Fill.order_id``
+MY_TRADES_ORDER_FILTER = {'binance': 'orderId', 'okx': 'ordId', 'kucoinfutures': 'orderId'}
+
+_DAY_MS = 86_400_000
+#: my_trades(since=, until=): ccxt id → (page size, largest window span in ms or None). The window end goes into the
+#: request (ccxt ``until`` → the docs parameter), the request uses ``limit`` = page; a full page splits the window in
+#: half until every part comes back incomplete (page direction differs between exchanges). Page ≤ docs limit, span ≤
+#: docs (ground truth: tests/ground_truth/<exchange>/my_trades_window.json). Bybit and BingX page on their own
+#: (cursor / pageIndex)
+MY_TRADES_WINDOW: dict[str, tuple[int, Optional[int]]] = {
+    'binance': (1000, 7 * _DAY_MS),         # USDⓈ-M userTrades — 7 days (spot — MY_TRADES_SPOT_SPAN)
+    'okx': (100, None),
+    'kucoinfutures': (100, None),           # futures fills pageSize ≤ 1000, spot hf/fills limit ≤ 100
+    'kucoin': (100, None),
+    'bitget': (100, 90 * _DAY_MS),
+    'gate': (100, None),
+    'mexc': (100, 90 * _DAY_MS),
+    # shortcut: the v3 matchresults_exact page size is not in the docs (the signal is remain_size, ccxt drops it);
+    # 20 is the v1 default page_size. If the exchange returns fewer than 20 with more remaining — read remain_size
+    'htx': (20, 2 * _DAY_MS),
+    'blofin': (100, None),
+    'hyperliquid': (500, None),             # «time range … only return 500 elements»
+}
+#: my_trades window span on spot where the exchange limit differs (Binance spot myTrades — 24 h)
+MY_TRADES_SPOT_SPAN: dict[str, int] = {'binance': _DAY_MS}
+
+#: Swap exchanges (ccxt id) where looking an order up by client_id is a dedicated exchange request by cid in any
+#: status (ground truth: Binance origClientOrderId, Bybit realtime+history by orderLinkId, OKX clOrdId, KuCoin
+#: byClientOid, Bitget clientOid, HL orderStatus cloid, MEXC order/external, BloFin order-detail clientOrderId):
+#: «not found» means there is no such order (within the exchange's retention). Not: Gate (by text — only 60 s after
+#: completion), BingX (not verified), HTX (lookup period by client_order_id not confirmed by the docs)
+EXACT_CLIENT_ID_LOOKUP = frozenset({'binance', 'bybit', 'okx', 'kucoinfutures', 'bitget', 'hyperliquid', 'mexc',
+                                    'blofin'})
+
 # Bot tag at the start of every client_id: letters/digits, up to 14 chars,
 # which is what fits on Binance with your own broker ID (36 − up to 14 prefix − 8 random).
 # The rest of the id is random hex (at least 8 chars); the id fits the exchange format.
@@ -105,6 +141,19 @@ def client_id_format(exchange_id: str, market_type: str = 'swap') -> Optional[re
     """Exchange client_id format for the market type (per docs) or None."""
     return MARKET_CLIENT_ID_FORMATS.get((exchange_id, 'swap' if market_type != 'spot' else 'spot'),
                                         CLIENT_ID_FORMATS.get(exchange_id))
+
+
+def numeric_client_id_prefix(tag: str) -> str:
+    """Numeric bot tag for an integer client_id (HTX USDT-M) from any tag (e.g. «d» + 12 hex).
+
+    A tag of 1–8 digits without a leading zero is returned as is; otherwise — 8 digits (10⁷…10⁸−1) from the tag's
+    SHA-256: deterministic, one tag gives one result across restarts. Two different tags collide with probability
+    ~1/9·10⁷ per pair; ``owns`` with such a tag would then treat both bots' orders as its own."""
+    value = str(tag)
+    if re.fullmatch(rf'[1-9][0-9]{{0,{NUMERIC_PREFIX_MAX - 1}}}', value):
+        return value
+    digest = int(hashlib.sha256(value.encode()).hexdigest(), 16)
+    return str(10 ** (NUMERIC_PREFIX_MAX - 1) + digest % (9 * 10 ** (NUMERIC_PREFIX_MAX - 1)))
 
 
 def check_client_id_prefix(exchange_id: str, prefix: Optional[str],
@@ -133,7 +182,8 @@ def check_client_id_prefix(exchange_id: str, prefix: Optional[str],
     if market_type is not None and numeric_client_id(exchange_id, market_type) \
             and not re.fullmatch(rf'[1-9][0-9]{{0,{NUMERIC_PREFIX_MAX - 1}}}', value):
         raise ConfigError(f'client_id_prefix for {exchange_id} {market_type} must be 1–{NUMERIC_PREFIX_MAX} digits '
-                          f'without a leading zero (client_order_id is an integer), not {prefix!r}', exchange=exchange_id,
+                          f'without a leading zero (client_order_id is an integer), not {prefix!r}; for a letter tag '
+                          f'use numeric_client_id_prefix()', exchange=exchange_id,
                           details={'client_id_prefix': prefix})
     return value
 
@@ -500,6 +550,7 @@ def position_params(exchange, *, side: str, hedge: bool, reduce_only: bool,
 
 
 __all__ = ['GATE_TEXT_PREFIX', 'HTX_CLIENT_ID_MAX', 'NUMERIC_PREFIX_MAX', 'MARKET_CLIENT_ID_FORMATS', 'client_id_format',
-           'numeric_client_id', 'generate_client_id', 'check_client_id_prefix', 'prefixed_client_id', 'CLIENT_ID_PREFIX_MAX', 'client_id_params', 'position_params', 'okx_tag_params',
+           'numeric_client_id', 'numeric_client_id_prefix', 'EXACT_CLIENT_ID_LOOKUP', 'MY_TRADES_ORDER_FILTER',
+           'MY_TRADES_WINDOW', 'MY_TRADES_SPOT_SPAN', 'generate_client_id', 'check_client_id_prefix', 'prefixed_client_id', 'CLIENT_ID_PREFIX_MAX', 'client_id_params', 'position_params', 'okx_tag_params',
            'CLIENT_ID_FORMATS', 'CLIENT_ID_KEYS', 'max_client_id_len', 'check_client_id', 'attribution_overflow',
            'binance_broker_prefix', 'exchange_client_id', 'owns']

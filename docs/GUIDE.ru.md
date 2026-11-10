@@ -3,7 +3,7 @@
 [English](GUIDE.md) | **Русский** · [← README](README.ru.md)
 
 Типизированный **асинхронный** Python SDK для криптобирж: Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget;
-в бете: Gate, MEXC, HTX, BloFin (фьючерсы USDT-M).
+в бете: Gate, MEXC, HTX, BloFin (спот и фьючерсы USDT-M).
 Единый интерфейс для спота и бессрочных фьючерсов, WebSocket с умными переподключениями,
 прокси на каждый аккаунт и инструменты для скальпинга.
 
@@ -125,6 +125,12 @@ Binance — `/fapi/v1/leverageBracket` с ключами, без ключей �
 возвращает и нулевые записи биржи (`size=0`; у нулевой one-way позиции `side=None`). `Fill.position_side` —
 сторона hedge-позиции сделки из данных биржи (REST и WS: Binance/BingX `positionSide`/`ps`, OKX `posSide`);
 `None` — one-way или биржа не отдаёт сторону в сделке (у Bybit `positionIdx` есть только у ордера, не у исполнения).
+
+`my_trades(symbol, since=, until=, order_id=, client_id_prefix=)`: `order_id` — только сделки этого ордера (на Binance,
+OKX и KuCoin фильтрует биржа, на остальных — SDK; задайте `since` не позже ордера); `client_id_prefix` — сделки ордеров
+вашего бота (если биржа не отдаёт client_id в сделке, он берётся из ордера). `until` (мс, включительно) возвращает окно
+`[since, until]` целиком: страницы читаются до конца окна, а если окно нельзя прочитать полностью — ошибка, а не часть
+списка (нужны `symbol` и `since`, без `limit`).
 
 **Торговля:** `buy` / `sell` / `place_order` (market/limit, `post_only`, `time_in_force`, `reduce_only`,
 `take_profit` / `stop_loss`, `client_id`), `place_orders`, `amend_order`, `cancel_order`, `cancel_orders`,
@@ -281,7 +287,7 @@ KuCoin sandbox) — свой лимитер IP: бан demo-хоста не де
 
 | | Binance | Bybit | OKX | BingX | Hyperliquid | KuCoin | Bitget | Gate (бета) | MEXC (бета) | HTX (бета) | BloFin (бета) |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| Спот | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ | — ⁹ |
+| Спот | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁶ | ✓ | ✓ ⁹ |
 | Бессрочные фьючерсы | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M | ✓ USDT-M |
 | Демо / тестнет | ✓ | ✓ | ✓ | фьючерсы | ✓ | — ² | ✓ ³ | ✓ ⁴ | — ⁷ | — ⁷ | ✓ |
 | Ордера через WS | ¹ | ¹ | ✓ | — | ¹ | — | — | ✓ | — | — | — |
@@ -296,8 +302,8 @@ KuCoin sandbox) — свой лимитер IP: бан demo-хоста не де
 ⁶ MEXC спот: WS-потоки — NotSupported (биржа шлёт protobuf, ccxt 4.4.65 использует старые JSON-каналы); REST — ✓.
 ⁷ У MEXC в документации нет тестнета; у HTX указано «Testnet (Stopped)»: `demo=True` → `NotSupported`, тестируйте на paper.
 ⁸ В документации HTX нет механизма брокерского тега: недокументированный `channel_code` из ccxt удалён, своего ID нет.
-⁹ BloFin: спот пока не поддержан; режим Multi-Position не поддерживается — `ConfigError` до торговли
-(см. «BloFin (бета)» ниже).
+⁹ BloFin, спот: нет amend, TP/SL и трейлинга (`NotSupported` до отправки); фьючерсы: режим Multi-Position не
+поддерживается — `ConfigError` до торговли (см. «BloFin (бета)» ниже).
 
 `demo=True` — собственный тестнет/демо биржи (Bybit — demo trading, остальные — sandbox биржи),
 **кроме Binance** — см. ниже. Это не симулятор; симулятор в памяти —
@@ -955,7 +961,7 @@ BTC/ETH/LTC (`unavailableContracts`), контракт с `apiAllowed=false` —
 
 Бессрочные фьючерсы USDT-M: `create_exchange('blofin', api_key=…, secret=…, password=…)`; `demo=True` — demo-хост
 BloFin. Правила — по официальной документации, расхождения ccxt 4.4.65 исправлены в `exchanges/blofin/ccxt_fixes.py`,
-код биржи — в `exchanges/blofin/`. Спот пока не поддержан (`market='spot'` → `ConfigError`).
+код биржи — в `exchanges/blofin/`. Спот — `market='spot'` (Spot API, см. ниже).
 
 ```python
 ex = create_exchange('blofin', api_key=…, secret=…, password=…, margin_mode='cross')  # режим уходит в каждом ордере
@@ -978,6 +984,13 @@ ex = create_exchange('blofin', api_key=…, secret=…, password=…, margin_mod
 post_only / IOC / FOK, уникальный `ACCESS-NONCE` (ccxt повторял timestamp — параллельные запросы отвергались), ошибки
 в `data`-объекте при `code` 0, коды 150004 / 103003 (средства), 102068 / 102067 / 1000 (ордера нет), 429 (лимит),
 плечо до `maxLeverage` инструмента, `batch-leverage-info` вместо устаревшего `leverage-info`.
+
+**Спот** (`create_exchange('blofin', market='spot', …)`, в том числе demo): в ccxt 4.4.65 спота BloFin нет — SDK
+шлёт запросы в Spot API (`/api/v1/spot/…`, `instType=SPOT`). `buy(notional=…)` — market-покупка на сумму в quote
+(`targetCurrency=quote_currency`), прочие market-ордера — в базе; ограничения размера (`minSize` / `lotSize`, в базе)
+проверяются до отправки; валюта комиссии ордера и сделки — база или quote рынка. Пакеты и отмена по id / client_id —
+как на фьючерсах; amend, TP/SL (в ордере и отдельно), трейлинг, плечо и позиции — `NotSupported` до отправки.
+WebSocket: стакан (проверка `prevSeqId`), ордера и баланс (`spot-account`).
 
 ## Прокси и несколько аккаунтов
 
@@ -1023,6 +1036,8 @@ async with AccountPool.from_file('accounts.yaml') as pool:
   нереализованный PnL), equity — всего аккаунта. Сверено на демо Bybit / Binance / OKX / BingX (2026-11-04):
   equity = ответ биржи, реализованный PnL и комиссии своих сделок = журнал операций, фандинг = журнал биржи
   и −размер × mark × ставка.
+- **Фандинг одного символа** (`ex.funding_paid(symbol, since=, until=)`): записи фандинга за окно из того же журнала,
+  `total` (+ получено / − уплачено), `complete` / `issues` — как в отчёте.
 - **Проверка ключа** (`ex.check_key()`, `ex.account_uid()`): права на торговлю и вывод, переводы, привязка
   к IP, тип аккаунта (Bybit unified/classic, OKX acctLv, Binance multi-assets, HL abstraction), режим
   позиций, UID — из эндпоинта прав ключа биржи по её документации. Ключ с правом вывода по умолчанию отклоняется
@@ -1201,6 +1216,11 @@ SDK никогда не подменяет client_id вызывающего: н�
 - `bytx.generate_client_id(ex, prefix='d0123…')` — id в формате и длине биржи.
 - `bytx.owns(order, prefix, exchange)` — ваш ли ордер (Hyperliquid и BingX — без учёта регистра).
   `Order.client_id` — логический: брокерский префикс Binance отрезается.
+- `bytx.numeric_client_id_prefix(tag)` — числовая метка (до 8 цифр) для бирж с целым client_id (HTX USDT-M),
+  детерминированно из любой метки.
+- `ex.client_id_lookup_exact` — `True`, если биржа ищет ордер по client_id в любом статусе (Binance, Bybit, OKX,
+  KuCoin, Bitget, Hyperliquid, MEXC, BloFin swap): тогда «не найден» от `order` / `find_order` значит, что ордера нет.
+  `False` (Gate, BingX, HTX, спот) — «не найден» не доказательство.
 - `set_tp_sl(..., take_profit_client_id=, stop_loss_client_id=)` — отдельный id на каждую ногу. На Bybit
   TP/SL ставятся на позицию без client_id — у ордеров `has_client_id=False` (то же на Gate:
   у price_orders нет пользовательского id; на BingX: «clientOrderId only supports LIMIT/MARKET order
@@ -1266,6 +1286,11 @@ record = await journal.summary(cycle_id)             # ордера с роля�
 боты биржи, дочерний ордер TP/SL (происхождение родителя); чужой cid — `foreign_api` (на Binance —
 `unknown`: биржа генерирует cid сама); без cid — `manual` (`heuristic`). `confidence`: `exact` —
 маркер биржи или собственный cid, `heuristic` — выведено без прямого маркера.
+
+**Чем закрыта позиция** — `await ex.classify_close(order_or_fill)` (или `bytx.journal.classify_close(exchange_id,
+info=, client_id=, tag=)`): `liquidation`, `adl`, `settlement`, `bot` (ваша метка), `conditional` (сработавший TP/SL,
+чей — не видно), `manual` или `unknown` — по маркерам самих бирж на 11 биржах (BingX — через эндпоинт
+принудительных ордеров).
 
 **Вмешательство** — событие `intervention` (`kind`) и колбэк `on_intervention=`:
 `foreign_order` (не наш ордер в позиции: ручной добор/сокращение, стороннее ПО),

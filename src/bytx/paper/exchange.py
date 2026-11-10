@@ -412,11 +412,15 @@ class PaperExchange(Exchange):
             return None
 
     async def my_trades(self, symbol: Optional[str] = None, *, since: Optional[int] = None,
-                        limit: Optional[int] = None) -> list[Fill]:
+                        limit: Optional[int] = None, order_id: Optional[str] = None,
+                        client_id_prefix: Optional[str] = None, until: Optional[int] = None) -> list[Fill]:
         await self.connect()
+        from bytx.order_params import owns
         rows = [f for f in self.engine.fills(self.symbol(symbol) if symbol else None)
-                if since is None or (f.timestamp or 0) >= since]
-        return rows[-limit:] if limit else rows
+                if (since is None or (f.timestamp or 0) >= since) and (until is None or (f.timestamp or 0) <= until)]
+        rows = rows[-limit:] if limit else rows
+        return [f for f in rows if (order_id is None or f.order_id == str(order_id))
+                and (client_id_prefix is None or owns(f, client_id_prefix, self._ex.id))]
 
     async def trading_fee(self, symbol: str) -> TradingFee:
         await self.connect()

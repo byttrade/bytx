@@ -208,9 +208,60 @@ def _by_client_id(rules: ModuleType, cid: str, tag: Optional[str], formats: tupl
                          generation=info.generation)
 
 
+#: What closed a position: liquidation, ADL, settlement (delisting / delivery), our bot (tag ``tag``), a triggered
+#: conditional order without a recognized parent, not our bot (by hand / exchange UI / third-party software), unknown
+CLOSE_REASONS = ('liquidation', 'adl', 'settlement', 'bot', 'conditional', 'manual', 'unknown')
+_SYSTEM = frozenset({'liquidation', 'adl', 'settlement'})
+_NOT_OURS = frozenset({'manual', 'exchange_ui', 'foreign_api', 'platform'})
+
+
+@dataclass(frozen=True, slots=True)
+class CloseVerdict:
+    """Result of :func:`classify_close`: ``reason`` from :data:`CLOSE_REASONS`, confidence (``exact`` / ``heuristic``
+    / None), an explanation and the full :class:`OriginVerdict`."""
+
+    reason: str
+    confidence: Optional[str]
+    detail: str
+    origin: OriginVerdict
+
+
+def classify_close(exchange: Any, *, info: Optional[dict] = None, client_id: Optional[str] = None,
+                   tag: Optional[str] = None, kind: str = 'order', known: Optional[str] = None,
+                   broker_prefixes: Iterable[str] = (),
+                   resolve_parent: Optional[Callable[[str], Optional[str]]] = None) -> CloseVerdict:
+    """What closed a position, from the closing order (``kind='order'``) or fill (``kind='fill'``).
+
+    Markers — the exchange rules of :func:`classify_origin` (per the docs); whether it is ours —
+    :func:`bytx.order_params.owns` (tag ``tag`` in client_id, HTX numeric tag, HL cloid). Where the liquidation
+    marker lives: Binance — cid ``autoclose-…`` / ``adl_autoclose``, type LIQUIDATION; Bybit — order ``createType`` /
+    fill ``execType``; OKX — ``category``; KuCoin — fill ``tradeType``; Hyperliquid — fill ``liquidation`` (the docs
+    have no ADL marker); Bitget — ``tradeSide`` / ``orderSource``; Gate — ``text`` / ``is_liq`` / ``finish_as``;
+    MEXC — ``category``; HTX — ``order_type`` / ``order_source``; BloFin — ``orderCategory``; BingX — not in the order
+    (the forceOrders endpoint — :meth:`bytx.Exchange.classify_close`)."""
+    from bytx.order_params import owns
+    info = info if isinstance(info, dict) else {}
+    v = classify_origin(exchange, client_id=client_id, info=info, kind=kind, tag=tag, known=known,
+                        broker_prefixes=broker_prefixes, resolve_parent=resolve_parent)
+    if v.origin in _SYSTEM:
+        return CloseVerdict(v.origin, v.confidence, v.reason, v)
+    cid = client_id if client_id is not None else rules_for(exchange).client_id_of(info)
+    if v.origin in _OWN_ISH or (tag and cid and owns(_strip(str(cid), tuple(broker_prefixes)), tag,
+                                                     _exchange_name(exchange))):
+        return CloseVerdict('bot', 'exact', v.reason if v.origin in _OWN_ISH else f'tag {tag} in client_id', v)
+    if v.origin in _NOT_OURS:
+        return CloseVerdict('manual', v.confidence, v.reason, v)
+    rules = rules_for(exchange)
+    sig = rules.fill_signal(info) if kind == 'fill' else rules.order_signal(info)
+    if v.parent is not None or (sig is not None and sig.child):
+        return CloseVerdict('conditional', None, v.reason, v)
+    return CloseVerdict('unknown', None, v.reason, v)
+
+
 def position_side_of_fill(exchange: Any, info: Optional[dict]) -> Optional[str]:
     """Fill position side in hedge mode (``long`` / ``short``); None — one-way or not specified."""
     return rules_for(exchange).fill_position_side(info if isinstance(info, dict) else {})
 
 
-__all__ = ['OriginVerdict', 'Signal', 'classify_origin', 'position_side_of_fill', 'rules_for']
+__all__ = ['CLOSE_REASONS', 'CloseVerdict', 'OriginVerdict', 'Signal', 'classify_close', 'classify_origin',
+           'position_side_of_fill', 'rules_for']

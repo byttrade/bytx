@@ -354,6 +354,66 @@ async def account_report(ex: 'Exchange', *, since: Optional[int], until: Optiona
     return report
 
 
+@dataclass(slots=True)
+class FundingPaid:
+    """A symbol's funding over ``[since, until]`` (ms) from the exchange's account ledger: ``total`` — + received /
+    − paid, in the market's settlement currency. ``complete=False`` (reasons in ``issues``) — the history is
+    incomplete or the request failed: ``total`` is then the sum of what was read, not the full result."""
+
+    symbol: str
+    since: int
+    until: int
+    items: list[IncomeItem] = field(default_factory=list)
+    complete: bool = True
+    issues: list[str] = field(default_factory=list)
+
+    @property
+    def total(self) -> float:
+        return sum(i.amount for i in self.items)
+
+    @property
+    def currency(self) -> Optional[str]:
+        return self.items[0].currency if self.items else None
+
+    def incomplete(self, reason: str) -> None:
+        self.complete = False
+        if reason not in self.issues:
+            self.issues.append(reason)
+
+
+async def funding_paid(ex: 'Exchange', symbol: str, *, since: Optional[int], until: Optional[int] = None
+                       ) -> FundingPaid:
+    """Funding paid by the account for a symbol over a window (:meth:`Exchange.funding_paid`). Source — the same
+    account ledger as :func:`account_report` (``exchanges/<exchange>/portfolio.py``, per the docs of 11 exchanges).
+    Request errors are not raised; they make the result incomplete."""
+    start, end = _window(since, until)
+    if getattr(ex, 'is_paper', False):
+        raise NotSupported('funding_paid: paper account — funding is in its own journal', exchange=ex.name)
+    await ex.connect()
+    s = ex.symbol(symbol)
+    module = exchange_module(ex, 'portfolio')
+    out = FundingPaid(symbol=s, since=start, until=end)
+    try:
+        result: IncomeResult = await module.income(ex, start, end, symbols=[s], positions=[])
+    except BytxError as e:
+        out.incomplete(f'income: {e.message or e}')
+        return out
+    out.items = sorted((i for i in result.items
+                        if i.kind == 'funding' and market_symbol(ex, i.symbol, i.market) == s), key=lambda i: i.ts)
+    for i in out.items:
+        i.symbol = s
+    # the fee gap (KuCoin) does not affect funding
+    skip = getattr(module, 'FEES_UNAVAILABLE', None)
+    for reason in result.issues:
+        if reason != skip:
+            out.incomplete(reason)
+    if 'funding' in result.unavailable:
+        out.incomplete(f'{ex.name}: the exchange does not return account funding')
+    if not result.complete and not result.issues:
+        out.incomplete('income: incomplete history')
+    return out
+
+
 async def portfolio(pool: 'AccountPool', *, since: Optional[int], until: Optional[int] = None,
                     names: Optional[Iterable[str]] = None, concurrency: int = 10,
                     keep_items: bool = False) -> PortfolioReport:

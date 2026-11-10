@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-source--available-blue)](https://github.com/byttrade/bytx/blob/main/LICENSE)
 
 Типизированный **асинхронный** Python SDK для криптобирж. Единый интерфейс для спота и бессрочных фьючерсов
-на Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget; в бете: Gate, MEXC, HTX, BloFin (фьючерсы USDT-M).
+на Binance, Bybit, OKX, BingX, Hyperliquid, KuCoin, Bitget; в бете: Gate, MEXC, HTX, BloFin (спот и фьючерсы USDT-M).
 
 ![Один API для всех бирж](https://raw.githubusercontent.com/byttrade/bytx/main/docs/media/one_api.gif)
 

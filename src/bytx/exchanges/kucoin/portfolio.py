@@ -63,10 +63,13 @@ def _funding_cls() -> type:
     return type('PortfolioFunding', (_FundingAdapter, FundingHistory), {})
 
 
+FEES_UNAVAILABLE = 'kucoin: the docs offer no single account-wide fee request (fees=None)'
+
+
 async def income(ex: Any, since: int, until: int, *, symbols: Optional[list] = None,
                  positions: Any = None) -> IncomeResult:
     result = IncomeResult(unavailable={'fee'})
-    result.incomplete('kucoin: the docs offer no single account-wide fee request (fees=None)')
+    result.incomplete(FEES_UNAVAILABLE)
     seen: set = set()
     pages = Pages('kucoin transaction-history')
     offset = None

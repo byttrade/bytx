@@ -35,7 +35,7 @@ from bytx.journal.models import (
     OrderSummary,
     PositionRecord,
 )
-from bytx.journal.origin import OriginVerdict, classify_origin, rules_for
+from bytx.journal.origin import CloseVerdict, OriginVerdict, classify_close, classify_origin, rules_for
 from bytx.journal.recovery import ExchangeHistorySource, HistorySource, RecoveryResult, recover_position
 from bytx.journal.store import AppendResult, InMemoryJournalStore, JournalStore
 
@@ -43,6 +43,7 @@ __all__ = [
     'AppendResult', 'Binding', 'CODE_ROLES', 'ClientIdInfo', 'EVENTS', 'ExchangeHistorySource', 'HistorySource',
     'INTERVENTION_KINDS', 'InMemoryJournalStore', 'JOURNAL_SCHEMA_VERSION', 'JournalEntry', 'JournalEvent',
     'JournalStore', 'LEVEL_ROLES', 'ORIGINS', 'OUTCOMES', 'OrderSummary', 'OriginVerdict', 'PositionJournal',
-    'PositionRecord', 'ROLES', 'ROLE_CODES', 'RecoveryResult', 'bot_tag', 'classify_origin',
+    'PositionRecord', 'ROLES', 'ROLE_CODES', 'RecoveryResult', 'bot_tag', 'classify_close', 'classify_origin',
+    'CloseVerdict',
     'current_binding', 'make_client_id', 'own_size', 'parse_client_id', 'recover_position', 'rules_for',
 ]
