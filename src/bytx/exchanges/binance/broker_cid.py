@@ -1,4 +1,4 @@
-"""Transparent Binance broker prefix in the client order id (design option A).
+r"""Transparent Binance broker prefix in the client order id (design option A).
 
 Binance broker attribution is the ``x-<ID>`` prefix in ``newClientOrderId`` (regular
 orders) and in ``clientAlgoId`` (Algo Order API). ccxt 4.4.65 adds the prefix only

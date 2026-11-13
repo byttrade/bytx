@@ -10,7 +10,8 @@ Reference — https://docs.blofin.com/spot.html (``S#anchor``), demo responses �
   and drops fields spot does not have (marginMode, positionSide, reduceOnly). Other futures endpoints (leverage,
   positions, TP/SL, amend) — NotSupported before the network. Shared — ``asset/*`` (balance
   ``asset/balances?accountType=spot``, S#get-balance), ``user/*``.
-- **Markets** (S#get-instruments): ``minSize`` / ``lotSize`` are in the base currency; spot has no settlement currency.
+- **Markets** (S#get-instruments): ``minSize`` / ``lotSize`` are in the base currency; spot has no settlement currency; fee
+  ``maker`` / ``taker`` — ``fees.PAPER_FEES['spot']`` (0.1%; ccxt has swap rates only).
 - **Market orders** (S#place-order, demo 2026-11-09): ``targetCurrency`` has no default — without it 152001; the SDK
   sends it explicitly: a buy for an amount — ``quote_currency`` (size is the quote amount), otherwise
   ``base_currency``. In market-buy-for-amount responses ``size`` = 0, filled — ``filledSize`` (base) and
@@ -57,6 +58,11 @@ def _fix_request(exchange: Any) -> None:
 
 
 def _fix_markets(exchange: Any) -> None:
+    from .fees import PAPER_FEES
+
+    maker, taker = PAPER_FEES['spot'][:2]
+    # ccxt takes a market's maker/taker from fees[type] — blofin has swap only there (spot would be None)
+    exchange.fees = {**exchange.fees, 'spot': {**exchange.fees.get('spot', {}), 'maker': maker, 'taker': taker}}
     original_parse = exchange.parse_market
 
     def parse_market(market: dict) -> dict:

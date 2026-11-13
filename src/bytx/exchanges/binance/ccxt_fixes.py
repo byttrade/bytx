@@ -23,6 +23,13 @@ Patches on the instance only (method wrappers, ``urls``); repeated ``apply`` is 
 - **Spot user data** (Spot CHANGELOG 2026-01-21): ``POST /api/v3/userDataStream``
   (listenKey) was removed; subscription — ``userDataStream.subscribe.signature`` in the WebSocket API,
   events arrive wrapped as ``{"subscriptionId", "event"}``.
+- **un_watch_ticker(s)**: ccxt waits for the reply on the data hash — the exchange reply "rejects" it with
+  UnsubscribeError, and the subscription key (``ethusdt@ticker``) stays in ``client.subscriptions``: a repeated
+  ``watch_ticker`` of the same symbol sends no SUBSCRIBE and stays silent. Fixed: an own unsubscribe hash, the
+  subscription keys are removed after the reply.
+- **Packing subscriptions into connections** (:func:`pack_streams`, the market hub): ccxt spreads subscriptions
+  round-robin over ``streamLimits`` (50) connections — 50 symbols = 50 WS. With packing a subscription goes to
+  the lowest-numbered connection that has room.
 """
 from __future__ import annotations
 
@@ -354,6 +361,154 @@ def _patch_algo_update(exchange: Any) -> None:
     exchange.handle_message = handle_message
 
 
+# ─── WS: packing subscriptions into connections (market hub) ──────────────────
+
+_PACKER_ATTR = '_bytx_stream_packer'
+
+
+class _StreamPacker:
+    """Connection number of a subscription: the lowest one that holds at most ``per_connection`` after it.
+
+    ccxt (``stream()``) hands out numbers round-robin ``streamIndex % streamLimits[type]``: the first 50
+    subscriptions — 50 connections. Here a connection is filled up and the next one opens only when the current
+    ones have no room; :meth:`release` (unsubscribe) frees a place. The group is the ccxt market type and the
+    USDⓈ-M route (``/public`` and ``/market`` are different connections with the same number).
+    """
+
+    __slots__ = ('per_connection', 'by_hash', 'load')
+
+    def __init__(self, per_connection: int) -> None:
+        self.per_connection = max(1, int(per_connection))
+        self.by_hash: dict[str, tuple[tuple, int, int]] = {}
+        self.load: dict[tuple, dict[int, int]] = {}
+
+    def allocate(self, group: tuple, subscription_hash: str, count: int = 1) -> int:
+        known = self.by_hash.get(subscription_hash)
+        if known is not None:
+            return known[1]  # resubscribe (disconnect, topic unsubscribe) — the same connection
+        count = max(1, int(count or 1))
+        load = self.load.setdefault(group, {})
+        index = 0
+        while load.get(index, 0) and load.get(index, 0) + count > self.per_connection:
+            index += 1
+        load[index] = load.get(index, 0) + count
+        self.by_hash[subscription_hash] = (group, index, count)
+        return index
+
+    def release(self, subscription_hash: str) -> None:
+        known = self.by_hash.pop(subscription_hash, None)
+        if known is None:
+            return
+        group, index, count = known
+        load = self.load.get(group, {})
+        left = load.get(index, 0) - count
+        if left > 0:
+            load[index] = left
+        else:
+            load.pop(index, None)
+
+    def connections(self) -> int:
+        """How many connections are in use (for metrics and tests)."""
+        return sum(len(v) for v in self.load.values())
+
+
+def _patch_stream_alloc(exchange: Any) -> None:
+    """ccxt ``stream()`` by default; with :func:`pack_streams` — the number from the packer."""
+    original_stream = exchange.stream
+
+    def stream(type, subscriptionHash, numSubscriptions=1):
+        packer = getattr(exchange, _PACKER_ATTR, None)
+        if packer is None:
+            return original_stream(type, subscriptionHash, numSubscriptions)
+        group = (type, str(subscriptionHash).startswith(_PUBLIC_STREAM_HASHES))
+        return str(packer.allocate(group, str(subscriptionHash), numSubscriptions))
+
+    exchange.stream = stream
+
+
+def pack_streams(exchange: Any, per_connection: int) -> bool:
+    """The instance's subscriptions are packed into connections, up to ``per_connection`` per connection.
+
+    For an instance with public streams of many symbols only (the market hub): 120 tickers — 3 connections of 50,
+    not 50 (ccxt ``streamLimits``). The cap is ccxt ``subscriptionLimitByStream`` (200). Only a ccxt.pro binance
+    instance with the SDK patches; False — not such an instance (another exchange, REST).
+    """
+    if getattr(exchange, 'id', None) != 'binance' or not getattr(exchange, _APPLIED_ATTR, False) \
+            or not hasattr(exchange, 'parse_ws_order'):
+        return False
+    limits = (exchange.options or {}).get('subscriptionLimitByStream') or {}
+    cap = min([int(per_connection), *(int(v) for v in limits.values() if v)])
+    setattr(exchange, _PACKER_ATTR, _StreamPacker(cap))
+    return True
+
+
+def _ticker_stream_hash(exchange: Any, symbol: str) -> str:
+    """ccxt streamHash of the ``watch_ticker(symbol)`` subscription (watch_multi_ticker_helper)."""
+    channel, _ = exchange.handle_option_and_params({}, 'watchTicker', 'name', 'ticker')
+    return f'{channel}::{exchange.symbol(symbol)}'
+
+
+def release_ticker_stream(exchange: Any, symbol: str) -> None:
+    """The place of the ``symbol`` ticker in a packed connection is free (after unsubscribe). No packing — no-op."""
+    packer = getattr(exchange, _PACKER_ATTR, None)
+    if packer is None:
+        return
+    try:
+        packer.release(_ticker_stream_hash(exchange, symbol))
+    except Exception:  # noqa: BLE001 — no market for the symbol: it held no place
+        pass
+
+
+# ─── un_watch_tickers: an unsubscribe after which watch_ticker subscribes again ──
+
+def _patch_un_watch_tickers(exchange: Any) -> None:
+    """ccxt 4.4.65 ``un_watch_tickers`` (and ``un_watch_ticker`` through it) waits for the reply on the data hash
+    ``ticker:ticker@<symbol>`` (the unsubscribe is registered under it too): the exchange reply rejects it with
+    UnsubscribeError, and the subscription key ``<id>@ticker`` stays in ``client.subscriptions`` — a repeated
+    ``watch_ticker`` of the same symbol treats the subscription as live, sends no SUBSCRIBE and stays silent.
+    Here — the same unsubscribe with the hash ``unsubscribe:ticker:<symbol>`` (as ``un_watch_order_book`` does);
+    after the reply the subscription keys are removed. Unsubscribing all tickers (no symbols) and bookTicker —
+    the ccxt path."""
+    original = exchange.un_watch_tickers
+
+    async def un_watch_tickers(symbols=None, params={}):  # noqa: B006 — ccxt signature
+        channel, rest = exchange.handle_option_and_params(params, 'watchTickers', 'name', 'ticker')
+        if not symbols or channel == 'bookTicker':
+            return await original(symbols, params)
+        await exchange.load_markets()
+        symbols = exchange.market_symbols(symbols, None, True, False, True)
+        first = exchange.market(symbols[0])
+        market_type, rest = exchange.handle_market_type_and_params('watchTickers', first, rest)
+        sub_type, rest = exchange.handle_sub_type_and_params('watchTickers', first, rest)
+        if exchange.isLinear(market_type, sub_type):
+            raw_type = 'future'
+        elif exchange.isInverse(market_type, sub_type):
+            raw_type = 'delivery'
+        elif market_type == 'spot':
+            raw_type = 'spot'
+        else:
+            return await original(symbols, params)
+        markets = [exchange.market(s) for s in symbols]
+        args = [m['lowercaseId'] + '@' + channel for m in markets]
+        data_hashes = [exchange.get_message_hash(channel, m['symbol'], False) for m in markets]
+        unsub_hashes = ['unsubscribe:ticker:' + m['symbol'] for m in markets]
+        stream_hash = channel + '::' + ','.join(symbols)
+        url = exchange.urls['api']['ws'][raw_type] + '/' + exchange.stream(raw_type, stream_hash)
+        request_id = exchange.request_id(url)
+        request = {'method': 'UNSUBSCRIBE', 'params': args, 'id': request_id}
+        subscription = {'unsubscribe': True, 'id': str(request_id), 'subMessageHashes': data_hashes,
+                        'messageHashes': unsub_hashes, 'symbols': symbols, 'topic': 'ticker'}
+        result = await exchange.watch_multiple(url, unsub_hashes, exchange.extend(request, rest), unsub_hashes,
+                                               subscription)
+        client = (exchange.clients or {}).get(_route_future_url(url))
+        if client is not None:  # the next watch_ticker sends SUBSCRIBE again
+            for arg in args:
+                client.subscriptions.pop(arg, None)
+        return result
+
+    exchange.un_watch_tickers = un_watch_tickers
+
+
 def apply(exchange: Any) -> None:
     """ccxt binance instance patches (idempotent)."""
     if getattr(exchange, _APPLIED_ATTR, False):
@@ -364,7 +519,9 @@ def apply(exchange: Any) -> None:
     if hasattr(exchange, 'parse_ws_order'):  # ccxt.pro
         _fix_spot_testnet_ws_urls(exchange)
         demo.patch_spot_stream_detection(exchange)
+        _patch_stream_alloc(exchange)   # before the routes: their stream() wrapper calls this one
         _patch_ws_routes(exchange)
+        _patch_un_watch_tickers(exchange)
         _patch_ws_order_timestamp(exchange)
         _patch_algo_update(exchange)
         _patch_spot_user_data(exchange)

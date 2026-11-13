@@ -33,7 +33,8 @@ TWO_SL = (True, DOC, False, 'order-tpsl with a size — several per position (no
 
 # state: live — waiting; effective — triggered; canceled; order_failed — not filled (F#get-tpsl-order-history)
 _STATES = {'live': 'open', 'effective': 'triggered', 'canceled': 'canceled', 'order_failed': 'canceled'}
-# the fill order of a triggered TP/SL is not given in the TP/SL record (link — algoId / orderCategory on the order)
+# the fill order of a triggered TP/SL is not given in the TP/SL record (link — algoId / orderCategory on the order):
+# Exchange.tp_sl_order finds it in orders-history (protection._blofin_fill_order_ids, demo 2026-11-10)
 FILL_ORDER_ID: tuple = ()
 
 

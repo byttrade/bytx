@@ -447,6 +447,29 @@ ex.stream.on_state(lambda ev: print(ev.state, ev.stream, ev.attempt))
 соединение — оно переподключается (у сделок и свечей порога тишины по умолчанию нет);
 стакан проверяется на разрывы и пересечение и пересобирается из REST-снимка.
 
+**Общие соединения для многих ботов в одном процессе** — `bytx.hubs`:
+
+```python
+from bytx import hubs
+
+acc = await hubs.account('bybit', demo=True, api_key='…', secret='…')   # один на аккаунт
+fills = acc.fills('BTC/USDT:USDT')                # своя очередь, один watch_my_trades на весь хаб
+async for f in fills: ...                         # f.id — id сделки биржи, как в REST my_trades
+acc.open_orders('BTC/USDT:USDT'), acc.position('BTC/USDT:USDT'), acc.balance()  # None — поток не актуален, идти в REST
+
+mkt = await hubs.market('binance', demo=False)    # один на биржу: публичные тикеры всех ботов
+await mkt.watch('ETH/USDT:USDT')                  # +1 потребитель символа
+mkt.price('ETH/USDT:USDT')                        # None — свежего тикера нет
+await mkt.unwatch('ETH/USDT:USDT')                # −1; последний отписывает топик на бирже
+await hubs.release(mkt); await hubs.release(acc)  # последний release закрывает соединение
+hubs.stats()                                      # потребители, WS-соединения, символы — для метрик
+```
+
+Хаб аккаунта держит одно приватное соединение с трекерами ордеров и позиций по всем символам аккаунта; хаб рынка —
+одну подписку тикера на символ. `unwatch` последнего потребителя отписывает топик там, где это умеет ccxt (Binance,
+Bybit, OKX), и закрывает соединение, оставшееся без подписок. На Binance хаб рынка кладёт тикеры плотно, до 50 на
+соединение, а не по кругу ccxt на 50 соединений. Хаб никогда не ставит и не снимает ордера.
+
 ## Скальпинг
 
 ```python

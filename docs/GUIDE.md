@@ -454,6 +454,30 @@ order book or ticker silent longer than the threshold → that topic is resubscr
 connection goes quiet — it is reconnected (trades and candles have no silence threshold by default); the
 order book is checked for gaps and crossing and rebuilt from a REST snapshot.
 
+**Shared connections for many bots in one process** — `bytx.hubs`:
+
+```python
+from bytx import hubs
+
+acc = await hubs.account('bybit', demo=True, api_key='…', secret='…')   # one per account
+fills = acc.fills('BTC/USDT:USDT')                # own queue, one watch_my_trades for the whole hub
+async for f in fills: ...                         # f.id — the exchange trade id, as in REST my_trades
+acc.open_orders('BTC/USDT:USDT'), acc.position('BTC/USDT:USDT'), acc.balance()  # None — not live, use REST
+
+mkt = await hubs.market('binance', demo=False)    # one per exchange: public tickers of all bots
+await mkt.watch('ETH/USDT:USDT')                  # +1 consumer of the symbol
+mkt.price('ETH/USDT:USDT')                        # None — no fresh ticker
+await mkt.unwatch('ETH/USDT:USDT')                # −1; the last one unsubscribes the topic on the exchange
+await hubs.release(mkt); await hubs.release(acc)  # the last release closes the connection
+hubs.stats()                                      # consumers, WS connections, symbols — for metrics
+```
+
+The account hub keeps one private connection with order and position trackers for all symbols of the account;
+the market hub keeps one ticker subscription per symbol. `unwatch` of the last consumer unsubscribes the topic
+where ccxt supports it (Binance, Bybit, OKX) and closes a connection left without subscriptions. On Binance the
+market hub packs tickers into connections (up to 50 per connection) instead of ccxt's round-robin over 50
+connections. A hub never places or cancels orders.
+
 ## Scalping
 
 ```python

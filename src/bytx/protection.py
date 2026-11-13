@@ -1496,8 +1496,40 @@ async def _find_blofin(ex: 'Exchange', s: str, m: Market, oid: str) -> Optional[
         data = (resp or {}).get('data')
         for d in (data if isinstance(data, list) else [data]):
             if isinstance(d, dict) and str(d.get('tpslId')) == oid:
-                return _blofin_tpsl_order(d, s, m)
+                order = _blofin_tpsl_order(d, s, m)
+                if order is not None and order.state == 'triggered':
+                    order.fill_order_ids = await _blofin_fill_order_ids(ex, m, oid, d)
+                    order.fill_order_id = order.fill_order_ids[0] if order.fill_order_ids else None
+                return order
     return None
+
+
+_BLOFIN_FILL_PAGES = 10
+
+
+async def _blofin_fill_order_ids(ex: 'Exchange', m: Market, oid: str, d: dict) -> tuple[str, ...]:
+    """The fill order of a triggered TP/SL: the TP/SL record has no id of it, the link is on the order itself
+    (F#get-order-history: ``orderCategory`` tp | sl, ``algoId`` = tpslId). GET orders-history by instId since the TP/SL
+    was created (``begin``), newest first, limit 100, then by the ``after`` cursor (orderId of the last row): until the
+    order is found, a short page (the window up to now is covered) or _BLOFIN_FILL_PAGES pages — then empty and a
+    warning."""
+    req = {'instId': m.id, 'limit': '100'}
+    if d.get('createTime'):
+        req['begin'] = str(d['createTime'])
+    for _ in range(_BLOFIN_FILL_PAGES):
+        resp = await _blofin_request(ex, 'trade/orders-history', 'GET', dict(req))
+        rows = resp.get('data') if isinstance(resp, dict) else None
+        rows = [r for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)]
+        found = tuple(dict.fromkeys(
+            str(r['orderId']) for r in rows
+            if r.get('orderId') and str(r.get('algoId') or '') == oid
+            and str(r.get('orderCategory') or '').lower() in ('tp', 'sl')))
+        if found or len(rows) < 100 or not rows[-1].get('orderId'):
+            return found
+        req['after'] = str(rows[-1]['orderId'])
+    logger.warning(f'blofin: fill order of TP/SL {oid} ({m.id}) not found in {_BLOFIN_FILL_PAGES} pages of '
+                   f'orders-history — fill_order_ids is empty')
+    return ()
 
 
 _LISTERS = {
@@ -1601,7 +1633,8 @@ async def tp_sl_order(ex: 'Exchange', symbol: str, order_id: str) -> TpSlOrder:
     soon as the position is closed; it was also seen returning 51603 minutes after the trigger — :class:`OrderNotFound`,
     ask later), Binance ``actualOrderId``, BingX — the ``orderId`` of the fill order (Query Order details by the
     conditional order's id returns it, ``triggerOrderId``), Gate ``trade_id``, MEXC ``placeOrderId``, HTX
-    ``relation_order_id``. Bybit (trading-stop, demo 2026-11-04), KuCoin, Hyperliquid fill under the TP/SL's own id —
+    ``relation_order_id``, BloFin — the orders-history order with ``orderCategory`` tp | sl and ``algoId`` = tpslId
+    (demo 2026-11-10). Bybit (trading-stop, demo 2026-11-04), KuCoin, Hyperliquid fill under the TP/SL's own id —
     empty. Bitget — open plan orders only: a triggered one — :class:`OrderNotFound`.
     """
     await ex.connect()
