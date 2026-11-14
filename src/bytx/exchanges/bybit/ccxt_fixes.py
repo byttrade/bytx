@@ -14,6 +14,8 @@ Reference — Bybit V5 docs (https://bybit-exchange.github.io/docs/v5):
   ``side`` = ``""``. ccxt treats an empty ``side`` as closing BOTH sides and zeroes in the cache the long that
   just arrived in the same push (demo 2026-10-30: an open 0.01 was always 0 in the stream — the Bybit position
   stream «didn't respond», 4 answers out of 378 reads).
+- order/history: a terminal order (Cancelled, Rejected, Deactivated) has ``leavesQty`` = "0" — ccxt takes it as
+  ``remaining``, and a canceled order looks fully filled; remaining ← qty − cumExecQty.
 - order/batch-cancel: each order's code is ``retExtInfo.list`` at the same index (docs example: rejection 170213
   «Order does not exist.», empty ``orderId``). ccxt 4.4.65 merges the code into the ``result.list`` row for
   create-batch and amend-batch, but not for cancel-batch: an item rejection (including rate limit 10006) looked
@@ -33,6 +35,7 @@ def apply(exchange: Any) -> None:
     _patch_future_markets(exchange)
     _patch_order_book_nonce(exchange)
     _patch_order_fee(exchange)
+    _patch_order_remaining(exchange)
     _patch_position_realized_pnl(exchange)
     _patch_ws_order_book_levels(exchange)
     _patch_ticker_time(exchange)
@@ -115,6 +118,24 @@ def _patch_order_fee(ex: Any) -> None:
             return result
         result['fees'] = fees
         result['fee'] = dict(fees[0]) if len(fees) == 1 else None
+        return result
+
+    ex.parse_order = parse_order
+
+
+def _patch_order_remaining(ex: Any) -> None:
+    """Terminal order remaining ← qty − cumExecQty (order/history: Cancelled has ``leavesQty`` = "0").
+
+    ccxt takes remaining from ``leavesQty``, so a canceled (including partially filled) order looks
+    fully filled — the consumer doesn't re-create the canceled level.
+    """
+    orig = ex.parse_order
+
+    def parse_order(order, market=None):
+        result = orig(order, market)
+        amount, filled = result.get('amount'), result.get('filled')
+        if result.get('status') in ('canceled', 'rejected', 'expired') and amount and filled is not None:
+            result['remaining'] = ex.parse_number(ex.number_to_string(max(amount - filled, 0)))
         return result
 
     ex.parse_order = parse_order
