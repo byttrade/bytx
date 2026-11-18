@@ -19,6 +19,11 @@ PRICE_TYPES = {'last': 0, 'mark': 1, 'index': 2}
 
 OCO = ('emulated', DOC, False, 'separate price_orders: TP/SL link not described in docs')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (True, OCO[1], True,
+                  'demo 2026-11-18: after close_position the exchange canceled both price_orders; not described in docs')
+
 # Gate: TP/SL can't be attached to the entry order — «The two types of order take-profit/stop-loss
 # (close-long-order / close-short-order) are read-only and cannot be passed in requests»
 ATTACHED_SL = (False, DOC, True, 'order TP/SL is read-only — SL as a separate price_order after entry')

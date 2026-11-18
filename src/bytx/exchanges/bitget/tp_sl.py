@@ -23,6 +23,11 @@ OCO = ('emulated', DOC, True,
        'while the position is open) — emulation; when the position is closed the exchange cancels the remaining legs '
        '(cancelled)')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (True, OCO[1], True,
+                  'demo 2026-11-04: the exchange cancels the remaining legs when the position is closed (cancelled)')
+
 # SL on entry: Place Order — presetStopLossPrice «Stop-loss value» (and presetStopSurplusPrice).
 ATTACHED_SL = (True, 'https://www.bitget.com/docs/catalog/classic-contract-trade/classic-contract-trade#place-order', True,
                'presetStopLossPrice / presetStopSurplusPrice in Place Order')

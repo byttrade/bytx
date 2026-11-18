@@ -23,6 +23,11 @@ HISTORY_PAGES = 10              # page_size «50 at most» — up to the last 50
 # mutual cancel on trigger is not described in the docs
 OCO = ('emulated', DOC, False, 'relation_tpsl_order_id links the pair; canceling the second leg is not described in docs')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (None, OCO[1], False,
+                  'not described in the docs, not checked on an account')
+
 # Place An Order: tp_trigger_price / sl_trigger_price — «Only open orders can support setting take profit and stop loss»
 ATTACHED_SL = (True, 'https://huobiapi.github.io/docs/usdt_swap/v1/en/#cross-place-an-order', True,
                'sl_trigger_price in the opening order')

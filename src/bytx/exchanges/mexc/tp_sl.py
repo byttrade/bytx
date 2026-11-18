@@ -17,6 +17,11 @@ TRENDS = {'last': 1, 'mark': 2, 'index': 3}
 # Each leg is a separate stoporder (one price); a link between two separate orders isn't described in the docs
 OCO = ('emulated', DOC, False, 'separate stoporders for TP and SL: mutual cancel not described in docs')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (None, OCO[1], False,
+                  'not described in the docs, not checked on an account')
+
 # Place Order: «stopLossPrice — Stop-loss price» (and takeProfitPrice) — SL is attached to the entry order
 ATTACHED_SL = (True, 'https://www.mexc.com/api-docs/futures/account-and-trading-endpoints/place-order', False,
                'stopLossPrice in Place Order; to verify on the exchange (MEXC has no testnet)')

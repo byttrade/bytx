@@ -748,7 +748,8 @@ class PaperEngine:
             self._events.append(('positions', self._position_model(p)))
 
     def _on_flat(self, s: str, side: str) -> None:
-        """Position closed: cancel reduce-only orders and TP/SL of that side."""
+        """Position closed: cancel reduce-only orders and TP/SL of that side. Like Bybit/OKX; Binance does not cancel
+        them (``tp_sl_cancel_on_flat``) — paper is gentler than the exchange here."""
         close_side = 'sell' if side == 'long' else 'buy'
         now = self.clock()
         for o in list(self._open.get(s, {}).values()):

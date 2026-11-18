@@ -19,6 +19,11 @@ DEFAULT_TRIGGER_BY = 'mark'
 OCO = ('emulated', 'https://www.kucoin.com/docs-new/api-3470235', False,
        'separate stop orders: link not described in the docs (st-orders and oco_* too), no demo')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (None, OCO[1], False,
+                  'not described in the docs, no demo')
+
 # SL attached to the entry order (open_position): «Add Take Profit And Stop Loss Order»
 # POST /api/v1/st-orders — «supports both take-profit and stop-loss functions, and other functions are exactly
 # the same as the place order interface»: entry and TP/SL in one request (ccxt sends an order with stopLoss there).

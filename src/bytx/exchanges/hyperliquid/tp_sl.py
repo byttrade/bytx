@@ -14,6 +14,11 @@ DEFAULT_TRIGGER_BY = 'mark'
 OCO = ('emulated', 'https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint'
        '#query-order-status-by-oid-or-cloid', True, 'grouping na — legs are not linked')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (True, OCO[1], True,
+                  'testnet 2026-11-18: after close_position the exchange canceled both TP/SL trigger orders')
+
 # SL attached to the entry order (open_position): the order action has ``grouping``
 # "normalTpsl", but the SDK sends "na" — entry and SL as separate orders, SL right after entry.
 ATTACHED_SL = (False, 'https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint',

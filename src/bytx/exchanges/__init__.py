@@ -73,6 +73,20 @@ def attached_sl(ccxt_id: str) -> tuple[bool, Optional[str], bool, str]:
     return bool(ok), url, bool(verified), str(note)
 
 
+def tp_sl_cancel_on_flat(ccxt_id: str) -> tuple[Optional[bool], Optional[str], bool, str]:
+    """Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order),
+    ``exchanges/<exchange>/tp_sl.py`` ``CANCEL_ON_FLAT``: (cancels, docs URL, verified, note). True — Bybit, OKX,
+    BingX, Bitget, BloFin, Gate, Hyperliquid; False — Binance: after :meth:`~bytx.Exchange.close_position` or one leg
+    firing the other stays and, being reduce-only, closes the next position on that side — cancel it
+    (:meth:`~bytx.Exchange.flatten`, :meth:`~bytx.Exchange.cancel_tp_sl`, ``recover()``). None — unknown (KuCoin, MEXC,
+    HTX, unknown exchange)."""
+    module = _MODULES.get(ccxt_id)
+    if module is None:
+        return None, None, False, 'no data'
+    cancels, url, verified, note = importlib.import_module(f'{__name__}.{module}.tp_sl').CANCEL_ON_FLAT
+    return cancels, url, bool(verified), str(note)
+
+
 async def price_band(ex: Any, symbol: str) -> Optional[tuple[Optional[float], Optional[float]]]:
     """The exchange's order price band now — (highest buy price, lowest sell price) per the docs
     (``exchanges/<exchange>/limits.py`` ``price_band``): the exchange rejects an order beyond the band entirely.

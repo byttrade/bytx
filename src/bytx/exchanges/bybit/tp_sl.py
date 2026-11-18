@@ -22,6 +22,11 @@ OCO = ('emulated', 'https://bybit-exchange.github.io/docs/v5/position/trading-st
        'Partial legs are not linked (demo 2026-11-04: after TP the SL leg stays alive while the position is open) — '
        'emulation; when the position is closed the exchange cancels the remaining legs (CancelByTpSlTsClear)')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (True, OCO[1], True,
+                  'demo 2026-11-04: the exchange cancels the remaining legs when the position is closed (CancelByTpSlTsClear)')
+
 # SL attached to the entry order (open_position): Create Order ``stopLoss`` / ``takeProfit``
 # («You can set TP/SL when placing an order»); ``tpslMode`` not set — per docs Full: SL on the whole position
 # (open_position only opens a new position, so it is that position's SL).

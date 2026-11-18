@@ -623,6 +623,13 @@ client_id; новый ордер не уходит, пока предыдущи�
 > позиция символа больше объёма bracket (другой бот, ручной вход): нога живёт на остатке позиции, это
 > не «сирота», и у Bybit (trading-stop) и BingX (условные ордера) у ноги нет client_id — `recover()`
 > не опознаёт её как вашу.
+>
+> **Без bracket** (`open_position`, `set_tp_sl`) за ногами никто не следит: когда одна сработала или позиция
+> закрыта `close_position`, другая остаётся там, где биржа не снимает её сама. Справка —
+> `bytx.exchanges.tp_sl_cancel_on_flat(ccxt_id)`: снимают сами — Bybit, OKX, BingX, Bitget, BloFin, Gate,
+> Hyperliquid; **не снимает — Binance** (demo 2026-11-18: после `close_position` остаются обе ноги, после TP — SL);
+> неизвестно — KuCoin, MEXC, HTX. На таких биржах `open_position` с SL и TP пишет об этом в `warnings`;
+> закрывать — `flatten` (снимает свои TP/SL). Paper снимает TP/SL при закрытии всегда — на Binance он мягче биржи.
 
 ## Размер позиции от риска
 

@@ -2433,6 +2433,10 @@ class Exchange:
         side is fully covered by resting closing orders") is re-checked by reading the position (as for any
         reduce-only, :meth:`_unplaced`): the position remains → :class:`~bytx.errors.PositionCovered`, closed — None,
         read failure — :class:`InvalidOrder` with ``details['position_unverified']``.
+
+        The position's TP/SL are not canceled: where the exchange does not cancel them itself
+        (:func:`bytx.exchanges.tp_sl_cancel_on_flat` — Binance) they stay and close the next position on that side.
+        To close and cancel them — :meth:`flatten`.
         """
         pos = await self.position(symbol, side)
         if pos is None:
@@ -3509,16 +3513,29 @@ class Exchange:
           ``plan``); ``'keep'``: the same error, the position stays. If only TP fails, the position is open,
           with a warning in ``warnings``.
 
+        SL and TP are independent orders, nothing here watches them: when one fires or the position is closed, the
+        other stays where the exchange does not cancel it itself (:func:`bytx.exchanges.tp_sl_cancel_on_flat`:
+        Binance — no, KuCoin, MEXC, HTX — unknown; then ``warnings`` says so). Cancel it (:meth:`flatten`,
+        :meth:`cancel_tp_sl`) or let ``recover()`` do it; with watching — ``ex.algos.bracket``.
+
         Position journal (if attached): entry has role ``entry``, SL/TP ``sl``/``tp``, rollback ``close``;
         ``position_id``: journal position. Returns :class:`~bytx.risk_sizing.OpenPositionResult`
         (plan, entry order, stop, actual risk by fill). Derivatives only.
         """
+        from bytx.exchanges import tp_sl_cancel_on_flat
         from bytx.risk_sizing import open_position
-        return await open_position(self, symbol, side, risk_usdt=risk_usdt, stop=stop, leverage=leverage,
-                                   take_profit=take_profit, price=price, fee_rate=fee_rate,
-                                   slippage_bps=slippage_bps, stop_mode=stop_mode, trigger_by=trigger_by,
-                                   on_stop_fail=on_stop_fail, check_margin=check_margin, client_id=client_id,
-                                   position_id=position_id)
+        r = await open_position(self, symbol, side, risk_usdt=risk_usdt, stop=stop, leverage=leverage,
+                                take_profit=take_profit, price=price, fee_rate=fee_rate,
+                                slippage_bps=slippage_bps, stop_mode=stop_mode, trigger_by=trigger_by,
+                                on_stop_fail=on_stop_fail, check_margin=check_margin, client_id=client_id,
+                                position_id=position_id)
+        # paper cancels TP/SL on flat itself (paper/engine.py _on_flat)
+        if (r.status == 'opened' and r.plan.take_profit is not None and not self.is_paper
+                and not any(w.startswith('TP not placed') for w in r.warnings)
+                and tp_sl_cancel_on_flat(self.ccxt.id)[0] is not True):
+            r.warnings.append(f'TP and SL are independent on {self.name}: when one fires or the position is closed, '
+                              f'the other stays — cancel it (flatten / cancel_tp_sl / recover)')
+        return r
 
     def _margin_contracts(self, s: str, m: Market, side: Side, margin: float, leverage: Optional[float],
                           price: Optional[float], ref_price: Optional[float], order_type: str,

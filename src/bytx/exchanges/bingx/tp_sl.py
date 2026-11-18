@@ -18,6 +18,11 @@ OCO = ('emulated', 'https://bingx-api.github.io/docs-v3/#/en/Swap/Trades%20Endpo
        'separate conditional orders, not linked (demo 2026-11-04: after TP the SL leg stays alive while the position '
        'is open) — emulation; when the position is closed the exchange cancels the rest (CANCELLED)')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (True, OCO[1], True,
+                  'demo 2026-11-04: the exchange cancels the remaining legs when the position is closed (CANCELLED)')
+
 # SL attached to the entry order (open_position): Place order ``stopLoss`` / ``takeProfit``
 # (JSON string, «Support setting take profit/stop loss while placing an order»). Field descriptions in the docs
 # are shifted by one row (the stopLoss text sits next to the neighboring field) — verified on demo 2026-11-04

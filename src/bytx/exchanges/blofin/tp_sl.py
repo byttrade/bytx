@@ -21,6 +21,11 @@ TRIGGER_TYPES = {'mark': 'mark', 'last': 'last'}
 OCO = ('native_pair', DOC, True, 'TP and SL in one order-tpsl request — one tpslId (demo 2026-11-09: one request, '
                                  'removed by the exchange when the position closed)')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (True, OCO[1], True,
+                  'demo 2026-11-09: the order-tpsl pair is removed by the exchange when the position closes')
+
 # SL on entry: Place Order — tpTriggerPrice / slTriggerPrice (+ OrderPrice, -1 — market)
 ATTACHED_SL = (True, 'https://docs.blofin.com/index.html#place-order', False,
                'tpTriggerPrice / slTriggerPrice in Place Order (not verified on demo)')

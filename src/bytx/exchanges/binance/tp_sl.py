@@ -15,6 +15,11 @@ DEFAULT_TRIGGER_BY = 'last'
 OCO = ('emulated', 'https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Algo-Order',
        True, 'conditional orders are independent; closePosition not allowed with quantity')
 
+# Whether the exchange itself cancels the remaining TP/SL once the position is flat (closed by any order):
+# True / False / None — unknown. False: after close_position or one leg firing the other stays (cancel it).
+CANCEL_ON_FLAT = (False, OCO[1], True,
+                  'demo 2026-11-18: after close_position and after TP fired the other legs stay open')
+
 # SL attached to the entry order (open_position): New Order (POST /fapi/v1/order) has no
 # TP/SL fields — TP/SL are placed via New Algo Order. The SDK places the SL right after entry (with rollback).
 ATTACHED_SL = (False, 'https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api',

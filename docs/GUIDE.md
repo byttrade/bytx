@@ -632,6 +632,13 @@ protection, not resuming. Bracket OCO watching and trailing SL tightening do not
 > the symbol's position is larger than the bracket size (another bot, a manual entry): the leg lives on the rest of
 > the position, it is not an "orphan", and on Bybit (trading-stop) and BingX (conditional orders) the leg has no
 > client_id — `recover()` doesn't recognize it as yours.
+>
+> **Without bracket** (`open_position`, `set_tp_sl`) nothing watches the legs: when one fires or the position is
+> closed with `close_position`, the other stays where the exchange does not cancel it itself. Reference —
+> `bytx.exchanges.tp_sl_cancel_on_flat(ccxt_id)`: cancel themselves — Bybit, OKX, BingX, Bitget, BloFin, Gate,
+> Hyperliquid; **does not — Binance** (demo 2026-11-18: after `close_position` both legs stay, after TP — the SL);
+> unknown — KuCoin, MEXC, HTX. There `open_position` with SL and TP says so in `warnings`; close with `flatten`
+> (it cancels your TP/SL). Paper always cancels TP/SL on close — on Binance it is gentler than the exchange.
 
 ## Risk-based position sizing
 
