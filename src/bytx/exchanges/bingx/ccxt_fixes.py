@@ -512,9 +512,11 @@ def _add_watch_positions(exchange: Any) -> None:
 # 109421 «The specified order does not exist — it may have been filled, cancelled, or the order ID is
 # incorrect» — on Query Order too (VST: right after a fill, demo 2026-11-04);
 # 100410 — request frequency limit («Request frequency too high, rate limit triggered…»; ccxt —
-# OperationFailed, i.e. «outcome unknown», although the request was not accepted).
+# OperationFailed, i.e. «outcome unknown», although the request was not accepted);
+# 109429 «Too many invalid requests in a short period; temporarily restricted» — the account's method is blocked after
+# 20 errors (ccxt — a bare ExchangeError; demo 2026-11-22: 20 × 109400 looking up a non-existent order).
 EXACT_ERRORS = {'101215': ccxt.OrderImmediatelyFillable, '109421': ccxt.OrderNotFound,
-                '100410': ccxt.RateLimitExceeded}
+                '100410': ccxt.RateLimitExceeded, '109429': ccxt.RateLimitExceeded}
 
 
 def _fix_exceptions(exchange: Any) -> None:

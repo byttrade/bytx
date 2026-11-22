@@ -517,15 +517,18 @@ MIN_BAN_PAUSE = 1.0
 BINGX_BAN_DEFAULT = 60.0
 BLOFIN_IP_BAN_PAUSE = 300.0
 _UNBLOCK_RE = re.compile(r'unblocked after (\d{10,})')
+_RETRY_AFTER_TIME_RE = re.compile(r'retry after time: (\d{10,})')
 
 
 def ban_signal(exchange_id: str, code: Any, body: Any, now_ms: Optional[float] = None) -> Optional[tuple[str, float]]:
-    """A ban from an exchange response: (scope, seconds) — ``'ip'`` or ``'endpoint'``; None — not a ban.
+    """A ban from an exchange response: (scope, seconds) — ``'ip'``, ``'endpoint'`` or ``'account'``; None — not a ban.
 
     Bybit: HTTP 403 and «access too frequent» — an IP ban for :data:`BYBIT_IP_BAN_PAUSE` (other 403 — geo block etc.
     — are not a ban). BingX: code 100410 (HTTP 200) «...disabled period and will be unblocked after <ms>» — until the
     unblock moment by the exchange clock (the response ``timestamp``, otherwise ``now_ms`` — the local clock with the
-    offset); the docs do not name the scope, the text says «endpoint ... limit rule»: the endpoint part. Not less than
+    offset); the docs do not name the scope, the text says «endpoint ... limit rule»: the endpoint part. BingX 109429
+    «over 20 error code:... requests within 480000 ms for this api, ... can retry after time: <ms>» — one account's
+    method is blocked (``'account'``: a second account does not turn it into an IP ban). Not less than
     :data:`MIN_BAN_PAUSE`."""
     text = body if isinstance(body, str) else ''
     if exchange_id == 'bybit':
@@ -535,20 +538,22 @@ def ban_signal(exchange_id: str, code: Any, body: Any, now_ms: Optional[float] =
     if exchange_id == 'blofin':
         # F#network-firewall-restrictions: HTTP 403 — firewall, IP ban for ~5 min
         return ('ip', BLOFIN_IP_BAN_PAUSE) if str(code) == '403' else None
-    if exchange_id == 'bingx' and '100410' in text:
+    if exchange_id == 'bingx' and ('100410' in text or '109429' in text):
         try:
             data = json.loads(text)
         except ValueError:
             return None
-        if not isinstance(data, dict) or str(data.get('code')) != '100410':
+        code = str(data.get('code')) if isinstance(data, dict) else None
+        if code not in ('100410', '109429'):
             return None
-        m = _UNBLOCK_RE.search(str(data.get('msg') or ''))
+        scope, pattern = ('endpoint', _UNBLOCK_RE) if code == '100410' else ('account', _RETRY_AFTER_TIME_RE)
+        m = pattern.search(str(data.get('msg') or ''))
         if m is None:
-            return 'endpoint', BINGX_BAN_DEFAULT
+            return scope, BINGX_BAN_DEFAULT
         stamp = data.get('timestamp')
         server_ms = float(stamp) if isinstance(stamp, (int, float)) else (now_ms if now_ms is not None
                                                                            else time.time() * 1000.0)
-        return 'endpoint', max(MIN_BAN_PAUSE, (int(m.group(1)) - server_ms) / 1000.0)
+        return scope, max(MIN_BAN_PAUSE, (int(m.group(1)) - server_ms) / 1000.0)
     return None
 
 
@@ -642,6 +647,11 @@ def install_limiter(exchange: Any, key: str, rate_limit: Optional[float] = None)
         within the window — the IP."""
         scope, seconds = ban
         now = time.monotonic()
+        if scope == 'account':
+            if part is not None:
+                shared_throttler(acct + part, exchange.tokenBucket).block(seconds)
+            _note_ban(exchange, seconds, f'endpoint {_ENDPOINT.get()} of the account')
+            return
         if scope == 'endpoint' and part is not None:
             windows = _endpoint_bans.setdefault(key, {})
             for k in [k for k, until in windows.items() if until <= now]:

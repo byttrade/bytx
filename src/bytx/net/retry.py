@@ -97,13 +97,13 @@ def is_ip_ban(error: BaseException) -> bool:
 
 def is_ban(error: BaseException) -> bool:
     """An exchange ban — retrying is pointless until it ends: HTTP 418 (IP ban), Bybit HTTP 403 «access too
-    frequent» (IP ban), BingX 100410 («disabled period ... unblocked after»)."""
+    frequent» (IP ban), BingX 100410 («disabled period ... unblocked after») and 109429 («can retry after time»)."""
     if is_ip_ban(error):
         return True
     if not isinstance(error, ccxt.RateLimitExceeded):
         return False
     text = str(error)
-    return 'access too frequent' in text.lower() or '100410' in text
+    return 'access too frequent' in text.lower() or '100410' in text or '109429' in text
 
 
 def _ban_left(fn: Any) -> Optional[float]:
