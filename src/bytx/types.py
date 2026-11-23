@@ -333,6 +333,7 @@ class FundingRate:
     index_price: Optional[float]
     timestamp: Optional[int]
     raw: dict = field(repr=False, default_factory=dict)
+    interval_hours: Optional[float] = None   # funding interval, where the exchange gives it with the rate
 
 
 @dataclass(slots=True)

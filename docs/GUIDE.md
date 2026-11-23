@@ -106,8 +106,11 @@ same interface on every exchange.
 
 ## Features
 
-**Market data:** `ticker`, `tickers`, `order_book`, `trades`, `candles`, `funding_rate(s)`, `funding_history`,
+**Market data:** `ticker`, `tickers`, `order_book`, `trades`, `candles`, `funding_rate(s)`, `funding_intervals`, `funding_history`,
 `open_interest`, `markets`, `market`, `server_time`, `leverage_tiers`, `maintenance_margin_rate`.
+`candles(symbol, tf, since=, until=, limit=)` — `until` (ms, inclusive) pages history backwards (BloFin and similar
+exchanges otherwise return the latest page). `funding_intervals(symbols=None)` — `{symbol: hours}`;
+`FundingRate.interval_hours` where the exchange gives the interval with the rate.
 All of these work without keys (`create_exchange('bybit')`); markets live in a process-wide cache with a 1 h TTL.
 `leverage_tiers(symbol)` returns leverage tiers and maintenance margin rates (`LeverageTier`): Bybit, OKX
 (bounds in base: `min_size`/`max_size`), KuCoin, Hyperliquid (MMR = 1 / (2 · maxLeverage) per the docs),
@@ -488,7 +491,10 @@ async with ex.order_tracker('BTC/USDT') as orders, ex.dead_man_switch(30):
     done = await orders.wait(o.id, timeout=30)                           # closed / canceled
 ```
 
-- orders over WS with REST fallback (`ws_place_order`, `ws_amend_order`, `ws_cancel_order`);
+- orders over WS with REST fallback (`ws_place_order`, `ws_amend_order`, `ws_cancel_order`); OKX sends the market
+  `instIdCode` (a market without one goes via REST); a rejected WS cancel (other than "no such order") is repeated via
+  REST — cancel is idempotent;
+- `orders.track(order)` — show a just-sent order in the tracker before its WS event;
 - `OrderTracker` / `PositionTracker` — state from private WS, REST reconciliation after a disconnect;
 - `OrderBook`: `spread_bps`, `microprice`, `imbalance`, `depth`, `fill_price(notional=…)`;
 - metrics: `ex.metrics()` (p50/p99 per method), `ex.stream.stats()` (exchange → us latency).

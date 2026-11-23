@@ -106,7 +106,7 @@ paper-трейдинг на живых стаканах, журнал позиц
 
 ## Возможности
 
-**Рыночные данные:** `ticker`, `tickers`, `order_book`, `trades`, `candles`, `funding_rate(s)`, `funding_history`,
+**Рыночные данные:** `ticker`, `tickers`, `order_book`, `trades`, `candles`, `funding_rate(s)`, `funding_intervals`, `funding_history`,
 `open_interest`, `markets`, `market`, `server_time`, `leverage_tiers`, `maintenance_margin_rate`.
 Всё это работает без ключей (`create_exchange('bybit')`); рынки хранятся в общем кэше процесса с TTL 1 ч.
 `leverage_tiers(symbol)` возвращает уровни плеча и ставки поддерживающей маржи (`LeverageTier`): Bybit, OKX
@@ -480,7 +480,9 @@ async with ex.order_tracker('BTC/USDT') as orders, ex.dead_man_switch(30):
     done = await orders.wait(o.id, timeout=30)                           # closed / canceled
 ```
 
-- ордера через WS с откатом на REST (`ws_place_order`, `ws_amend_order`, `ws_cancel_order`);
+- ордера через WS с откатом на REST (`ws_place_order`, `ws_amend_order`, `ws_cancel_order`); OKX шлёт `instIdCode`
+  рынка (рынок без кода — через REST); отказ WS-отмены (кроме «ордера нет») повторяется по REST;
+- `orders.track(order)` — показать только что отправленный ордер в трекере до WS-события;
 - `OrderTracker` / `PositionTracker` — состояние из приватного WS, сверка через REST после обрыва;
 - `OrderBook`: `spread_bps`, `microprice`, `imbalance`, `depth`, `fill_price(notional=…)`;
 - метрики: `ex.metrics()` (p50/p99 по методам), `ex.stream.stats()` (задержка биржа → мы).

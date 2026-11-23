@@ -31,6 +31,9 @@ async def main():
 asyncio.run(main())
 ```
 
+> **OKX and Bitget perpetuals:** pass the margin mode — `create_exchange('okx', …, margin_mode='cross')`.
+> Without it the first order raises `ConfigError`: bytx never guesses the margin mode for you.
+
 `demo=True` uses the exchange's demo/testnet; no real money involved. Market data needs no keys at all:
 `create_exchange('okx')`.
 

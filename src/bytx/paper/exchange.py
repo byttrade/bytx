@@ -229,9 +229,9 @@ class PaperExchange(Exchange):
         return await super().trades(symbol, since=since, limit=limit)
 
     async def candles(self, symbol: str, timeframe: str = '1m', *, since: Optional[int] = None,
-                      limit: Optional[int] = None) -> list:
+                      limit: Optional[int] = None, until: Optional[int] = None) -> list:
         self._live_only('REST candles')
-        return await super().candles(symbol, timeframe, since=since, limit=limit)
+        return await super().candles(symbol, timeframe, since=since, limit=limit, until=until)
 
     async def funding_rate(self, symbol: str) -> FundingRate:
         self._live_only('REST funding rate')

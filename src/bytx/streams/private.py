@@ -299,13 +299,20 @@ def _require(ccxt_ex: Any, capability: str, name: str) -> None:
 
 # ─── WS order routing ─────────────────────────────────────────────────────
 
-def ws_order_route(ccxt_ex: Any, op: str) -> tuple[bool, str]:
-    """(use WS, reason). ``op``: 'create' / 'edit' / 'cancel'."""
+def ws_order_route(ccxt_ex: Any, op: str, symbol: Optional[str] = None) -> tuple[bool, str]:
+    """(use WS, reason). ``op``: 'create' / 'edit' / 'cancel'.
+
+    OKX: WS order operations require the market's ``instIdCode`` — no symbol or no code on the market → REST.
+    """
     capability = WS_CAPABILITY[op]
     if not ccxt_ex.has.get(capability):
         return False, f'{capability} is not in ccxt'
     ex_id = str(getattr(ccxt_ex, 'id', '')).lower()
-    if ex_id == 'binance':
+    if ex_id == 'okx':
+        from bytx.exchanges.okx.ccxt_fixes import inst_id_code
+        if symbol is None or inst_id_code(ccxt_ex, ccxt_ex.market(symbol)) is None:
+            return False, 'okx: WS order operations need the market instIdCode'
+    elif ex_id == 'binance':
         from bytx.exchanges.binance.broker_cid import exchange_binance_cid_config
         cfg = exchange_binance_cid_config(ccxt_ex)
         if cfg is not None and cfg.active:
