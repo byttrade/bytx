@@ -273,6 +273,11 @@ class OrderTracker(_Tracker):
 
         return await asyncio.wait_for(loop(), timeout)
 
+    def track(self, order: Order) -> None:
+        """Put a just-sent order (the ``place_order`` / ``ws_place_order`` reply) into the tracker without waiting
+        for the WS event. Monotonic like stream events: a finished order does not come back to life."""
+        self._apply(order)
+
     def _apply(self, order: Order) -> None:
         if self.symbol and order.symbol != self.symbol:
             return

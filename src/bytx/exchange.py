@@ -181,6 +181,11 @@ def _ccxt_amount(request: dict) -> float:
     return float(request['params']['cost']) if amount is None else amount
 
 
+# ccxt 4.4.65 fetch_ohlcv without params['until'] (checked in the sources) — until is converted to since
+_OHLCV_NO_UNTIL = frozenset({'kucoin', 'kucoinfutures'})
+_OHLCV_DEFAULT_LIMIT = 100
+
+
 class Exchange:
     """Async client for one exchange and one account (not bound to a symbol)."""
 
@@ -458,12 +463,41 @@ class Exchange:
         return [convert.trade(t, m) for t in await self._call(self._ex.fetch_trades, s, since, limit)]
 
     async def candles(self, symbol: str, timeframe: str = '1m', *, since: Optional[int] = None,
-                      limit: Optional[int] = None) -> list[Candle]:
+                      limit: Optional[int] = None, until: Optional[int] = None) -> list[Candle]:
+        """Candles; ``until`` (ms, inclusive) pages history backwards: bars not later than ``until``.
+
+        Where ccxt does not read ``until`` (KuCoin), a window of ``limit`` bars up to ``until`` is set via ``since``.
+        """
         await self.connect()
         s = self.symbol(symbol)
-        raw = await self._call(self._ex.fetch_ohlcv, s, timeframe, since, limit)
+        params: dict = {}
+        if until is not None:
+            if self._ex.id in _OHLCV_NO_UNTIL:
+                if since is None:
+                    since = until - ((limit or _OHLCV_DEFAULT_LIMIT) - 1) * self._ex.parse_timeframe(timeframe) * 1000
+            else:
+                params['until'] = until
+        # without until — the previous 4-argument call: consumers' fetch_ohlcv stubs keep working
+        raw = await self._call(self._ex.fetch_ohlcv, s, timeframe, since, limit, *((params,) if params else ()))
+        if until is not None:
+            raw = [c for c in raw if c[0] <= until]
         m = self._market_or_none(s)
         return [convert.candle(c, self._ex.id, m) for c in raw]
+
+    async def funding_intervals(self, symbols: Optional[Iterable[str]] = None) -> dict[str, float]:
+        """Funding intervals in hours: ``{symbol: 8.0}``. Symbols without an interval in the exchange reply are left out.
+
+        Binance returns the interval separately from the rate (fetchFundingIntervals: only symbols with an adjusted
+        interval); other exchanges — from :meth:`funding_rates` (``FundingRate.interval_hours``).
+        """
+        if self._ex.has.get('fetchFundingIntervals'):
+            await self.connect()
+            syms = [self.symbol(s) for s in symbols] if symbols else None
+            raw = await self._call(self._ex.fetch_funding_intervals, syms)
+            hours = {s: convert.interval_hours(r.get('interval')) for s, r in raw.items()}
+        else:
+            hours = {s: r.interval_hours for s, r in (await self.funding_rates(symbols)).items()}
+        return {s: h for s, h in hours.items() if h}
 
     async def funding_rate(self, symbol: str) -> FundingRate:
         await self.connect()
@@ -3215,11 +3249,11 @@ class Exchange:
             streams = self._streams = Streams(self)
         return streams
 
-    def _ws_route(self, op: str, *, ws: bool) -> bool:
+    def _ws_route(self, op: str, symbol: str, *, ws: bool) -> bool:
         from bytx.streams.private import ws_order_route
         if not ws:
             return False
-        use_ws, _reason = ws_order_route(self._ex, op)
+        use_ws, _reason = ws_order_route(self._ex, op, symbol)
         return use_ws
 
     async def _ws_timed(self, op: str, use_ws: bool, fn: Callable[..., Awaitable[T]], *args: Any) -> T:
@@ -3259,7 +3293,7 @@ class Exchange:
                                           take_profit=take_profit, stop_loss=stop_loss,
                                           params=params)
         await self._pre_submit(request)
-        use_ws = self._ws_route('create', ws=ws)
+        use_ws = self._ws_route('create', request['symbol'], ws=ws)
         if use_ws:
             from bytx.streams.private import ws_create_params
             fn, order_params = self._ex.create_order_ws, ws_create_params(self._ex, request['params'])
@@ -3313,7 +3347,7 @@ class Exchange:
         # limit price toward the passive side, as in place_order
         p = (convert.price_to_precision(self._ex, m, price, side if type == 'limit' else None)
              if price is not None else None)
-        use_ws = self._ws_route('edit', ws=ws)
+        use_ws = self._ws_route('edit', s, ws=ws)
         fn = self._ex.edit_order_ws if use_ws else self._ex.edit_order
         with self._journal_op(s, [order_id, cids[1] if cids else None]):
             raw = await self._ws_timed('edit', use_ws, fn, order_id, s, type, side, amount, p, params)
@@ -3324,17 +3358,22 @@ class Exchange:
         """Like :meth:`cancel_order`, via WS (ccxt ``cancel_order_ws``) with a REST fallback."""
         await self.connect()
         s = self.symbol(symbol)
-        use_ws = self._ws_route('cancel', ws=ws)
+        use_ws = self._ws_route('cancel', s, ws=ws)
         fn = self._ex.cancel_order_ws if use_ws else self._ex.cancel_order
         if not order_id and not client_id:
             raise ConfigError(f'order_id or client_id is required ({s})', exchange=self.name, details={'symbol': s})
+        # cancel key by client_id, as in REST cancel_order (Binance: origClientOrderId)
+        args = ((order_id, s, {}) if order_id
+                else (None, s, cancel_client_id_params(self._ex, cast(str, client_id))))
         with self._journal_op(s, [order_id, client_id]):
-            if order_id:
-                raw = await self._ws_timed('cancel', use_ws, fn, order_id, s, {})
-            else:
-                # cancel key by client_id, as in REST cancel_order (Binance: origClientOrderId)
-                raw = await self._ws_timed('cancel', use_ws, fn, None, s,
-                                           cancel_client_id_params(self._ex, cast(str, client_id)))
+            try:
+                raw = await self._ws_timed('cancel', use_ws, fn, *args)
+            except BytxError as e:
+                # cancel is idempotent: a WS rejection (except "no such order") retries the same cancel via REST,
+                # otherwise the order stays on the book
+                if not use_ws or isinstance(e, OrderNotFound):
+                    raise
+                raw = await self._ws_timed('cancel', False, self._ex.cancel_order, *args)
         order = self._order(raw, fallback={'id': order_id, 'client_id': client_id, 'symbol': s})
         if self.intents is not None:
             self.intents._on_update(self, order)

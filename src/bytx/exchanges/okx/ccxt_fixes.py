@@ -6,7 +6,7 @@ is installed earlier — here we wrap the instance methods already in place.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from ccxt.async_support.base.ws.cache import ArrayCacheBySymbolById
 from ccxt.base.errors import InvalidNonce
@@ -239,6 +239,45 @@ def _patch_ws_order_trade_fee(ex: Any) -> None:
     ex.order_to_trade = order_to_trade
 
 
+# WS order operations where OKX requires instIdCode (changelog 2025-11-20; instId in them is deprecated/ignored,
+# 2026-03-26 and 2026-04-07; ground_truth/okx/ws_trade_inst_id_code.json). mass-cancel goes by instFamily.
+_WS_TRADE_OPS = frozenset({'order', 'batch-orders', 'amend-order', 'batch-amend-orders',
+                           'cancel-order', 'batch-cancel-orders'})
+
+
+def inst_id_code(ex: Any, market: Any) -> Optional[int]:
+    """The market instIdCode from Get instruments (``info``) or None (per the docs — null until generated).
+
+    The code differs between demo and production: taken only from this instance's markets, never cached across modes.
+    """
+    info = market.get('info') if isinstance(market, dict) else None
+    code = info.get('instIdCode') if isinstance(info, dict) else None
+    return int(code) if code not in (None, '') else None
+
+
+def _patch_ws_trade_inst_id_code(ex: Any) -> None:
+    """WS / Place, Amend, Cancel order (and batch): instIdCode of the market by instId in every ``args[i]``.
+
+    ccxt 4.4.65 sends only instId → demo: sCode 50014 "Parameter instIdCode can not be empty" (2026-11-23).
+    A market without a code is left alone: such orders are already routed via REST (``ws_order_route``).
+    """
+    if not hasattr(ex, 'watch'):
+        return
+    original = ex.watch
+
+    def watch(url, message_hash, message=None, *args, **kwargs):
+        if isinstance(message, dict) and message.get('op') in _WS_TRADE_OPS:
+            by_id = getattr(ex, 'markets_by_id', None) or {}
+            for arg in message.get('args') or []:
+                if isinstance(arg, dict) and arg.get('instIdCode') is None and arg.get('instId') in by_id:
+                    code = inst_id_code(ex, by_id[arg['instId']][0])
+                    if code is not None:
+                        arg['instIdCode'] = code
+        return original(url, message_hash, message, *args, **kwargs)
+
+    ex.watch = watch
+
+
 def apply(exchange: Any) -> None:
     """ccxt okx instance patches (repeated call is a no-op)."""
     if getattr(exchange, '_bytx_okx_fixes', False):
@@ -252,3 +291,4 @@ def apply(exchange: Any) -> None:
     _patch_ws_fills(exchange)
     _patch_ws_notice(exchange)
     _patch_ws_order_trade_fee(exchange)
+    _patch_ws_trade_inst_id_code(exchange)

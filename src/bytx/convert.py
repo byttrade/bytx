@@ -457,12 +457,22 @@ def _binance_ws_cid(info: dict) -> Optional[str]:
     return None
 
 
+def interval_hours(interval: Any) -> Optional[float]:
+    """ccxt funding interval ('8h', '4h', '1h' …) → hours; missing/unknown — None."""
+    if not interval or not isinstance(interval, str):
+        return None
+    try:
+        return ccxt.Exchange.parse_timeframe(interval) / 3600
+    except Exception:  # noqa: BLE001 — not a timeframe: no interval
+        return None
+
+
 def funding_rate(r: dict) -> FundingRate:
     return FundingRate(
         symbol=_s(r.get('symbol')), rate=_f(r.get('fundingRate')),
         next_funding_time=r.get('fundingTimestamp') or r.get('nextFundingTimestamp'),
         mark_price=_f(r.get('markPrice')), index_price=_f(r.get('indexPrice')),
-        timestamp=r.get('timestamp'), raw=r,
+        timestamp=r.get('timestamp'), raw=r, interval_hours=interval_hours(r.get('interval')),
     )
 
 
