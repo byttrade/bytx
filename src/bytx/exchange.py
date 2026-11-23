@@ -125,6 +125,9 @@ _MODE_IN_ORDER = frozenset({'okx', 'kucoinfutures', 'bitget', 'mexc', 'htx', 'bl
 # Leverage is sent with the order (KuCoin leverage, MEXC leverage "must be provided when opening", HTX lever_rate is
 # required and equals the open position's leverage); set_leverage only stores the value, so does set_margin_mode,
 # except on KuCoin: there the mode also belongs to the symbol (Switch Margin Mode, exchanges/kucoin/margin_mode.py)
+# Margin mode is a per-symbol exchange setting, not an order field: an opening order with a configured mode checks
+# the symbol's mode and switches it (_ensure_symbol_margin). BingX only for now
+_MODE_PER_SYMBOL = frozenset({'bingx'})
 _LEVERAGE_IN_ORDER = frozenset({'kucoinfutures', 'mexc', 'htx'})
 # Exchanges with a single position mode (one-way) where hedge is impossible.
 # Gate dual mode (close via auto_size / dual_side) is not yet supported by the SDK: one-way only.
@@ -238,6 +241,7 @@ class Exchange:
         # BloFin: Multi-Position on the account (seen in connect) — every order is refused
         self._blofin_mode_error: Optional[ConfigError] = None
         self._leverage: dict[str, float] = {}
+        self._margin_checked: dict[str, MarginMode] = {}   # symbol → mode confirmed on the exchange (_MODE_PER_SYMBOL)
         self._connected = False
         self._close_gen = 0      # bumped on every close(): a connect started before close does not revive background tasks
         # shared per-IP limiter, retries, metrics, time sync (configured by create_exchange)
@@ -1461,8 +1465,26 @@ class Exchange:
         else:
             await self._call(self._ex.set_margin_mode, mode, s, params)
         self._margin_modes[s] = mode
+        self._margin_checked[s] = mode
         if 'leverage' in params:
             self._leverage[s] = params['leverage']
+
+    async def _ensure_symbol_margin(self, s: str, mode: MarginMode) -> None:
+        """Make the symbol's margin mode on the exchange equal ``mode`` (BingX: Query / Change Margin Type). Without
+        this a configured ``margin_mode`` had no effect: positions opened in the symbol's exchange mode (isolated by
+        default on BingX). If the switch is refused (a position or order is open on the symbol) — ConfigError, the
+        order is not sent."""
+        cur = (await self._call(self._ex.fetch_margin_mode, s)).get('marginMode')
+        if cur != mode:
+            try:
+                await self._call(self._ex.set_margin_mode, mode, s)
+            except NetworkError:
+                raise
+            except BytxError as e:
+                raise ConfigError(f'margin mode of {s} on the exchange is {cur}, configured {mode}; switch failed ({e}) '
+                                  f'— close positions and orders on the symbol or call set_margin_mode(symbol, ...)',
+                                  exchange=self.name, details={'symbol': s, 'margin_mode': mode, 'current': cur}) from e
+        self._margin_checked[s] = mode
 
     async def set_position_mode(self, hedge: bool, symbol: Optional[str] = None) -> None:
         """hedge=True: two positions (long and short) per symbol; False: one-way."""
@@ -3115,6 +3137,9 @@ class Exchange:
                 raise ConfigError(f'{s} leverage not set on this instance: call set_leverage(symbol, x) '
                                   f'(KuCoin takes leverage from every order)', exchange=self.name,
                                   details={'symbol': s})
+            if (mode and not reduce_only and self._ex.id in _MODE_PER_SYMBOL and not self.is_paper
+                    and self._margin_checked.get(s) != mode):
+                await self._ensure_symbol_margin(s, mode)
             hedge = await self.is_hedge_mode(s)
             p.update(position_params(self._ex, side=side, hedge=hedge, reduce_only=reduce_only,
                                      margin_mode=mode, leverage=leverage))

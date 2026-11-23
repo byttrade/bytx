@@ -113,6 +113,8 @@ class FakeVenue:
         c.fetch_open_orders = self.fetch_open_orders
         c.cancel_order = self.cancel_order
         c.set_leverage = self.set_leverage
+        c.fetch_margin_mode, c.set_margin_mode = self.fetch_margin_mode, self.set_margin_mode
+        self.margin: dict[str, str] = {}        # symbol margin mode (BingX), defaults to the client's mode
         c.fetch_balance = self.fetch_balance
         c.request = self.request
         c.privatePostV5PositionTradingStop = self.bybit_trading_stop
@@ -162,6 +164,15 @@ class FakeVenue:
 
     async def set_leverage(self, leverage: Any, symbol: Any = None, params: Any = None) -> dict:
         self.calls.append(('set_leverage', leverage, symbol, dict(params or {})))
+        return {}
+
+    async def fetch_margin_mode(self, symbol: Any, params: Any = None) -> dict:
+        self.calls.append(('fetch_margin_mode', symbol))
+        return {'symbol': symbol, 'marginMode': self.margin.get(symbol, self.ex.margin_mode)}
+
+    async def set_margin_mode(self, mode: Any, symbol: Any = None, params: Any = None) -> dict:
+        self.calls.append(('set_margin_mode', mode, symbol))
+        self.margin[symbol] = mode
         return {}
 
     async def fetch_positions(self, symbols: Any = None, params: Any = None) -> list[dict]:
