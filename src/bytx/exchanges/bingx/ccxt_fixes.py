@@ -492,6 +492,9 @@ def _add_watch_positions(exchange: Any) -> None:
         task = state.get('sub')
         if task is None or task.done():
             state['sub'] = asyncio.ensure_future(exchange.watch_balance())
+            # the next call reads the subscription outcome (task.done()); retrieve the closed-connection error here —
+            # otherwise asyncio prints «Task exception was never retrieved» when the process stops
+            state['sub'].add_done_callback(lambda t: t.cancelled() or t.exception())
             await asyncio.sleep(0)
         await exchange.authenticate()
         url = exchange.safe_string(exchange.urls['api']['ws'], 'linear') + '?listenKey=' + exchange.options['listenKey']

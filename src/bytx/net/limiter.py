@@ -513,8 +513,10 @@ def _retry_after(headers: Any) -> Optional[float]:
 BYBIT_IP_BAN_PAUSE = 600.0
 #: lower bound of a ban pause (clocks out of sync, the unblock moment already passed), s
 MIN_BAN_PAUSE = 1.0
-#: BingX 100410 without the unblock moment in the text, s
-BINGX_BAN_DEFAULT = 60.0
+#: BingX 100410 / 109429 without the unblock moment in the text («Please try again later», «rate limited») — a rate
+#: limit, not a ban window (a real ban comes with the unblock moment), s. The former 60 s held POST trade/order: the
+#: first SL of a position was placed after 66 s
+BINGX_SOFT_PAUSE = 2.0
 BLOFIN_IP_BAN_PAUSE = 300.0
 _UNBLOCK_RE = re.compile(r'unblocked after (\d{10,})')
 _RETRY_AFTER_TIME_RE = re.compile(r'retry after time: (\d{10,})')
@@ -526,7 +528,7 @@ def ban_signal(exchange_id: str, code: Any, body: Any, now_ms: Optional[float] =
     Bybit: HTTP 403 and «access too frequent» — an IP ban for :data:`BYBIT_IP_BAN_PAUSE` (other 403 — geo block etc.
     — are not a ban). BingX: code 100410 (HTTP 200) «...disabled period and will be unblocked after <ms>» — until the
     unblock moment by the exchange clock (the response ``timestamp``, otherwise ``now_ms`` — the local clock with the
-    offset); the docs do not name the scope, the text says «endpoint ... limit rule»: the endpoint part. BingX 109429
+    offset; without the moment — a short pause :data:`BINGX_SOFT_PAUSE`); the docs do not name the scope, the text says «endpoint ... limit rule»: the endpoint part. BingX 109429
     «over 20 error code:... requests within 480000 ms for this api, ... can retry after time: <ms>» — one account's
     method is blocked (``'account'``: a second account does not turn it into an IP ban). Not less than
     :data:`MIN_BAN_PAUSE`."""
@@ -549,7 +551,7 @@ def ban_signal(exchange_id: str, code: Any, body: Any, now_ms: Optional[float] =
         scope, pattern = ('endpoint', _UNBLOCK_RE) if code == '100410' else ('account', _RETRY_AFTER_TIME_RE)
         m = pattern.search(str(data.get('msg') or ''))
         if m is None:
-            return scope, BINGX_BAN_DEFAULT
+            return scope, BINGX_SOFT_PAUSE
         stamp = data.get('timestamp')
         server_ms = float(stamp) if isinstance(stamp, (int, float)) else (now_ms if now_ms is not None
                                                                            else time.time() * 1000.0)
