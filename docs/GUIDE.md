@@ -316,6 +316,12 @@ supported — `ConfigError` before trading (see «BloFin (beta)» below).
 **except Binance** — see below. It is not a simulator; the in-memory
 simulator is paper mode (`paper=True`, see "Paper trading and replay").
 
+`ex.assert_demo()` checks before trading that requests really go to the demo/testnet: `ConfigError` if any REST
+address of the instance is a production address (compared with the ccxt address table), and on OKX and Bitget, where
+the demo uses the production host, if the demo header (`x-simulated-trading: 1`, `paptrading: 1`) is missing. It
+looks at the transport, not at the `ex.demo` flag, and needs no network. Market WS streams are not checked (some
+demos use production ones).
+
 ### Binance: Demo Mode (default) and testnet
 
 `create_exchange('binance', demo=True)` (or `demo='demo'`) is **Demo Mode** (demo.binance.com), one
@@ -1245,6 +1251,9 @@ instrument(ex)                             # OpenTelemetry spans
   `close_all` use `asyncio.gather` internally, child tasks don't own the lock — deadlock.
 - `ex.name` is the stable SDK name: binance, bybit, okx, bingx, hyperliquid, kucoin, bitget, gate,
   mexc, htx, blofin.
+- `ex.ccxt` is an escape hatch, not the recommended path. Exchange id → symbol: `ex.symbol('BTCUSDT')` (synchronous,
+  after `connect()`; no such market — `BadSymbol`); symbol → id: `(await ex.market(symbol)).id`; is this a demo
+  instance — `ex.assert_demo()`.
 - `ex.market(symbol)` exposes `settle` and `raw` (the ccxt market dict); `ex.candles(...)` and
   `ex.leverage_tiers(symbol)` work without keys. `ex.close()` is idempotent and stops
   WS streams and background time sync. Don't call `ex.ccxt.close()` directly: background tasks would be left

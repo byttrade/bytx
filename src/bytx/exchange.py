@@ -18,7 +18,7 @@ import math
 import time
 import weakref
 from decimal import ROUND_DOWN, Decimal
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterable, Literal, Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterable, Iterator, Literal, Optional, TypeVar, Union, cast
 
 import ccxt
 
@@ -184,6 +184,21 @@ def _ccxt_amount(request: dict) -> float:
 # ccxt 4.4.65 fetch_ohlcv without params['until'] (checked in the sources) — until is converted to since
 _OHLCV_NO_UNTIL = frozenset({'kucoin', 'kucoinfutures'})
 _OHLCV_DEFAULT_LIMIT = 100
+# demo on the production host: (header, value, public request to sign() or None when the header is in ccxt headers)
+_DEMO_HEADER: dict[str, tuple[str, str, Optional[tuple[str, list[str]]]]] = {
+    'okx': ('x-simulated-trading', '1', None),
+    'bitget': ('paptrading', '1', ('v2/mix/market/tickers', ['public', 'mix'])),
+}
+
+
+def _http_urls(urls: Any) -> Iterator[str]:
+    """REST addresses (http/https) from a ccxt ``urls['api']`` table of any nesting."""
+    if isinstance(urls, str):
+        if urls.startswith('http'):
+            yield urls
+    elif isinstance(urls, dict):
+        for value in urls.values():
+            yield from _http_urls(value)
 
 
 class Exchange:
@@ -265,6 +280,26 @@ class Exchange:
     def ccxt(self) -> Any:
         """Raw ccxt.pro instance (escape hatch; broker tags are already set on it)."""
         return self._ex
+
+    def assert_demo(self) -> None:
+        """ConfigError unless REST requests of this instance go to the exchange demo/testnet. No network.
+
+        Checks the transport itself, not the ``demo`` flag: no REST address of the instance equals a production
+        address of the exchange (the ccxt ``describe()`` table), and where the demo uses the production host (OKX,
+        Bitget) requests carry the demo header. Market WS streams are not checked: some demos use production ones.
+        """
+        ex = self._ex
+        live = set(_http_urls(ex.describe()['urls']['api']))
+        on_live = sorted(set(_http_urls(ex.urls.get('api'))) & live)
+        if on_live and ex.id in _DEMO_HEADER:
+            header, value, probe = _DEMO_HEADER[ex.id]
+            headers = dict(ex.headers or {})
+            if probe:   # Bitget sets the header in sign(): look at a signed public request
+                headers.update(ex.sign(*probe, 'GET', {}).get('headers') or {})
+            if headers.get(header) == value:
+                on_live = []
+        if on_live:
+            raise ConfigError(f'not a demo/testnet endpoint: {", ".join(on_live)}', exchange=self.name)
 
     @property
     def id(self) -> str:

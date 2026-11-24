@@ -309,6 +309,11 @@ KuCoin sandbox) — свой лимитер IP: бан demo-хоста не де
 **кроме Binance** — см. ниже. Это не симулятор; симулятор в памяти —
 режим paper (`paper=True`, см. «Paper-трейдинг и replay»).
 
+`ex.assert_demo()` — проверка перед торговлей, что запросы реально уходят в demo/тестнет: `ConfigError`, если хоть
+один REST-адрес инстанса боевой (сверка с таблицей адресов ccxt), а у OKX и Bitget, где demo на боевом хосте, — если
+нет demo-заголовка (`x-simulated-trading: 1`, `paptrading: 1`). Смотрит транспорт, а не флаг `ex.demo`; сети не
+нужно. Рыночные WS-потоки не проверяет (часть demo берёт их с боевых хостов).
+
 ### Binance: Demo Mode (по умолчанию) и тестнет
 
 `create_exchange('binance', demo=True)` (или `demo='demo'`) — это **Demo Mode** (demo.binance.com), один
@@ -1226,6 +1231,9 @@ instrument(ex)                             # спаны OpenTelemetry
   `close_all` внутри используют `asyncio.gather`, дочерние задачи блокировкой не владеют — дедлок.
 - `ex.name` — стабильное имя в SDK: binance, bybit, okx, bingx, hyperliquid, kucoin, bitget, gate,
   mexc, htx, blofin.
+- `ex.ccxt` — запасной выход, а не рекомендованный путь. Биржевой id → символ: `ex.symbol('BTCUSDT')` (синхронно,
+  после `connect()`; нет такого рынка — `BadSymbol`); символ → id: `(await ex.market(symbol)).id`; demo ли инстанс —
+  `ex.assert_demo()`.
 - `ex.market(symbol)` отдаёт `settle` и `raw` (словарь рынка ccxt); `ex.candles(...)` и
   `ex.leverage_tiers(symbol)` работают без ключей. `ex.close()` идемпотентен и останавливает
   WS-потоки и фоновую синхронизацию времени. Не вызывайте `ex.ccxt.close()` напрямую: фоновые задачи останутся
